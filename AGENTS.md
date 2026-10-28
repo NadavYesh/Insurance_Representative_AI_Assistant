@@ -1,17 +1,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) and/or other ai agents when working with code in this repository.
 
-## Project status
+## Commands (run from `code/`)
 
-No code exists yet. When build/run/test commands are added, document them here.
+- Setup: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`
+- Run: `.venv/bin/python -m assistant "<question>"` (no argument: interactive)
+- Unit tests: `.venv/bin/pytest`
+- Evals: `.venv/bin/python -m evals.run --offline` (rules only, no key), `.venv/bin/python -m evals.run` (real LLM; `-k <id>` filters, `-v` prints replies)
 
 ## What this is
 
-A take-home assignment (AI Builder role). The brief is `../instructions/take_home_assignment.pdf` (Hebrew). Build a CLI assistant for insurance customer-service reps. A rep asks a free-text question, for example "customer 4471 wants to cancel, what are they entitled to?". The tool answers by combining that policy's data with the company's policy documents. No UI is needed; a basic CLI is enough.
+A take-home assignment (AI Builder role). The brief is `instructions/take_home_assignment.pdf` (Hebrew). Build a CLI assistant for insurance customer-service reps. A rep asks a free-text question, for example "customer 4471 wants to cancel, what are they entitled to?". The tool answers by combining that policy's data with the company's policy documents. No UI is needed; a basic CLI is enough.
 
-Input data lives **outside this repo**, in `../data/`:
+## Repo layout (paths relative to the repo root, where this file lives)
+
+- `AGENTS.md` (`CLAUDE.md` is a symlink to it) at the root.
+- `docs/`: deliverable docs (`README.md`, `QUESTIONS.md`, `DECISIONS.md`, `architecture.md`). `DECISIONS.md` and `QUESTIONS.md` are written in Hebrew; `README.md` is written in English.
+- `code/`: all source code (`code/config.json`; secrets in `code/.env`, git-ignored).
+- `instructions/take_home_assignment.pdf`: the brief (git-ignored).
+- `data/`: input data (git-ignored, not committed).
+
+Input data lives in `data/`:
 - `policies.csv`: about 60 policies exported as of **2026-10-25**. Treat this as "today" for all date calculations (seniority, arrears, the 14-day cooling-off period, travel start).
 - `policies/*.md`: 4 Hebrew procedure docs: cancellation (01), refunds (02), claims handling (03), exceptions (04).
+
+## Architecture
+look at @docs/architecture.md
 
 ## Client requirements (from "Ronit"; these drive every design decision)
 
@@ -22,7 +36,7 @@ Input data lives **outside this repo**, in `../data/`:
 5. Nice to have: tell the customer *when* their claim will be paid. Note that the claims doc gives SLAs for acknowledgement (3 business days) and assessor appointment (10 business days) but **no payment timeline**. The tool must not invent one.
 6. "How will I know it answers correctly?" The submission needs real evaluation (an eval set or tests), not "I tried a few questions."
 
-## Required deliverables (repo root)
+## Required deliverables (`docs/`)
 
 - `README.md`: how to run, what's required (keys, models, dependencies), and what works and what doesn't.
 - `QUESTIONS.md`: 3–5 questions for Ronit. For each: the assumption made, and what would change if the answer were the opposite.

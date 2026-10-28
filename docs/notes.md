@@ -1,0 +1,3 @@
+- Why an Unknown class?
+  - This is an object for unknown values.
+  - Why a data class? Because it defines an ini

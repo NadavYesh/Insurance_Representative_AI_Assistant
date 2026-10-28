@@ -32,7 +32,7 @@ class Unknown:
     reason: str = "" # this is defined in the __init__. the reason an be assigned with the object creation. 
 
     def __bool__(self) -> NoReturn:
-        raise TypeError(f"Cannot branch on an unknown value ({self.reason or 'no reason given'})")
+        raise UnknownBranchError(self)
 
     def _propagate(self, _other: object = None) -> Unknown:
         return self
@@ -47,7 +47,16 @@ class Unknown:
         return f"UNKNOWN ({self.reason})" if self.reason else "UNKNOWN"
 
 
-UNKNOWN = Unknown() # a global Unknown object. 
+class UnknownBranchError(TypeError):
+    """Raised when code branches on an Unknown. Carries the Unknown, so the
+    RuleEngine can report the value as unknown, with its reason, instead of crashing."""
+
+    def __init__(self, unknown: Unknown) -> None:
+        super().__init__(f"Cannot branch on an unknown value ({unknown.reason or 'no reason given'})")
+        self.unknown = unknown
+
+
+UNKNOWN = Unknown() # a global Unknown object.
 
 # T is a type parameter. either T or Unknown 
 #type Maybe[T] = T | Unknown #  uses the type statement added in Python 3.12
@@ -193,10 +202,13 @@ class Value:
 
 @dataclass(frozen=True)
 class Note:
-    """Something the rep must tell the customer or know, e.g. a lost discount."""
+    """Something the rep must tell the customer or know, e.g. a lost discount.
+
+    `rule_id` is None for notes that don't come from a procedure, e.g. "policy not found".
+    """
 
     text: str
-    rule_id: str
+    rule_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -235,7 +247,8 @@ class Decision:
         elif self.blocks:
             raise ValueError(f"A {self.outcome} decision can't carry blocks")
 
-        if self.outcome is not Outcome.NEED_INFO and self.policy is None:
+        # An escalation may come before any policy lookup (e.g. a regulator mention).
+        if self.outcome in (Outcome.ANSWER, Outcome.BLOCKED) and self.policy is None:
             raise ValueError(f"A {self.outcome} decision needs the policy it was made on")
 
         names = [v.name for v in self.values]
@@ -262,6 +275,6 @@ class Decision:
         """Every procedure reference behind this decision, in order, without repeats."""
         ids = [b.rule_id for b in self.blocks]
         ids += [v.rule_id for v in self.values]
-        ids += [n.rule_id for n in self.notes]
+        ids += [n.rule_id for n in self.notes if n.rule_id is not None]
         ids += [q.rule_id for q in self.questions]
         return tuple(dict.fromkeys(ids))

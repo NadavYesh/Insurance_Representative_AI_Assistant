@@ -1,0 +1,246 @@
+# Eval set: rep questions with the expected result, worked out by hand from
+# data/policies/01–04. "today" is pinned so results don't drift with config.json.
+#
+# expect:
+#   request          what the QuestionReader must extract (full mode only)
+#   outcome          answer | blocked | escalate | need_info
+#   rule             the deciding block's rule (blocked / escalate)
+#   values           name: value, or UNKNOWN
+#   notes            rule IDs of notes that must be present
+#   answer_contains  text the reply must include
+#   answer_excludes  text the reply must not include (e.g. an amount that must not be given)
+# rep_answers: how the rep answers follow-up questions (yes / no / unknown)
+
+today: 2026-10-25
+
+cases:
+  # --- Cancellation: answers --------------------------------------------------
+  - id: car-3y-4471
+    question: "לקוח 4471 רוצה לבטל, מה מגיע לו?"
+    expect:
+      request: {policy_id: "4471", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {effective_date: 2026-10-31, cancellation_fee: 150, seniority_bonus: 492, refund_estimate: 342}
+      answer_contains: ["342", "150", "הערכה"]
+
+  - id: car-3y-4471-english
+    question: "customer 4471 wants to cancel, what are they entitled to?"
+    expect:
+      request: {policy_id: "4471", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cancellation_fee: 150, refund_estimate: 342}
+      answer_contains: ["342"]
+
+  - id: customer-claims-wrong-amount
+    question: "הלקוח בפוליסה 4471 אומר שמגיע לו החזר של 900 ש״ח, זה נכון?"
+    expect:
+      request: {policy_id: "4471", intent: refund, mentions_regulator: false}
+      outcome: answer
+      values: {refund_estimate: 342}
+      answer_excludes: ["900"]
+
+  - id: car-ddmm-dates-4421
+    question: "4421 רוצה לבטל את ביטוח הרכב. כמה יקבל?"
+    expect:
+      request: {policy_id: "4421", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {seniority_months: 27, cancellation_fee: 150, seniority_bonus: 288, refund_estimate: 138}
+      answer_contains: ["138"]
+
+  - id: home-ddmm-dates-4408
+    question: "פוליסה 4408 - הלקוח רוצה לבטל את ביטוח הדירה"
+    expect:
+      request: {policy_id: "4408", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {seniority_months: 43, cancellation_fee: 0, seniority_bonus: 156, refund_estimate: 156}
+      answer_contains: ["156"]
+
+  - id: car-cooling-off-4416
+    question: "לקוח 4416 רכש ביטוח רכב לפני עשרה ימים ורוצה לבטל. יש דמי ביטול?"
+    expect:
+      request: {policy_id: "4416", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cooling_off: true, cancellation_fee: 0, effective_date: 2026-10-25, refund_estimate: UNKNOWN}
+      answer_excludes: ["150"]
+
+  - id: new-car-fee-above-refund-4441
+    question: "4441 רוצה לבטל, מה המצב?"
+    expect:
+      request: {policy_id: "4441", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cancellation_fee: 150, seniority_bonus: 0, refund_estimate: 0}
+      notes: ["02-§2"]
+
+  - id: new-health-under-a-year-4423
+    question: "פוליסה 4423, הלקוחה רוצה לבטל את ביטוח הבריאות"
+    expect:
+      request: {policy_id: "4423", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cancellation_fee: 50, seniority_bonus: 0, refund_estimate: 0}
+
+  - id: future-trip-4403
+    question: "הלקוחה עם פוליסה 4403 רוצה לבטל את ביטוח הנסיעות, היא טסה רק בנובמבר"
+    expect:
+      request: {policy_id: "4403", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cooling_off: true, cancellation_fee: 0, prorated_premium: UNKNOWN}
+      notes: ["01-§4"]
+
+  - id: arrears-4412
+    question: "4412 רוצה לבטל, כמה כסף יחזור אליו?"
+    expect:
+      request: {policy_id: "4412", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {days_since_last_payment: 145, arrears_debt: UNKNOWN, refund_estimate: UNKNOWN, cancellation_fee: 0}
+      notes: ["01-§5"]
+      answer_excludes: ["87 ₪ החזר"]
+
+  - id: multi-policy-4433
+    question: "לקוח 4433 רוצה לבטל את ביטוח הדירה"
+    expect:
+      request: {policy_id: "4433", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {seniority_bonus: 216, refund_estimate: 216}
+      notes: ["04-ג"]
+      answer_contains: ["5%"]
+
+  # --- Health: the rep is asked about paid claims -----------------------------
+  - id: old-health-no-claim-4401
+    question: "פוליסה 4401, הלקוחה רוצה לבטל את ביטוח הבריאות"
+    rep_answers: {claim_paid_last_12_months: no}
+    expect:
+      request: {policy_id: "4401", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {effective_date: 2026-11-24, cancellation_fee: 0, seniority_bonus: 288, refund_estimate: 288}
+      notes: ["04-ב"]
+      answer_contains: ["288", "24/11/2026"]
+
+  - id: old-health-rep-does-not-know-4401
+    question: "פוליסה 4401, הלקוחה רוצה לבטל את ביטוח הבריאות"
+    rep_answers: {claim_paid_last_12_months: unknown}
+    expect:
+      request: {policy_id: "4401", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {effective_date: 2026-11-24, cancellation_fee: 0, seniority_bonus: UNKNOWN, refund_estimate: UNKNOWN}
+      answer_excludes: ["288"]
+
+  - id: old-health-claim-paid-4427
+    question: "4427 מבקשת לבטל"
+    rep_answers: {claim_paid_last_12_months: yes}
+    expect:
+      request: {policy_id: "4427", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {effective_date: 2026-11-24, seniority_bonus: 0, refund_estimate: 0}
+
+  - id: health-2025-no-claim-4449
+    question: "הלקוח של פוליסה 4449 רוצה לבטל"
+    rep_answers: {claim_paid_last_12_months: no}
+    expect:
+      request: {policy_id: "4449", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {effective_date: 2026-10-31, seniority_months: 21, seniority_bonus: 174, refund_estimate: 174}
+
+  # --- Blocked and escalated --------------------------------------------------
+  - id: open-claim-4425
+    question: "4425 רוצה לבטל את הפוליסה"
+    expect:
+      request: {policy_id: "4425", intent: cancel, mentions_regulator: false}
+      outcome: escalate
+      rule: "01-§6"
+      answer_contains: ["מנהל משמרת", "2 ימי עסקים"]
+
+  - id: open-claim-refund-question-4425
+    question: "כמה כסף תקבל 4425 אם תבטל?"
+    expect:
+      request: {policy_id: "4425", mentions_regulator: false}
+      outcome: escalate
+      rule: "01-§6"
+
+  - id: regulator-4406
+    question: "הלקוח בפוליסה 4406 אומר שאם לא נבטל לו מיד הוא מגיש תלונה לרשות שוק ההון"
+    expect:
+      request: {policy_id: "4406", mentions_regulator: true}
+      outcome: escalate
+      rule: "04-ה"
+      answer_contains: ["מנהל משמרת"]
+
+  - id: regulator-indirect-4415
+    question: "4415 אומרת שהיא תפנה לממונה על שוק ההון אם לא נחזיר לה את הכסף"
+    expect:
+      request: {policy_id: "4415", mentions_regulator: true}
+      outcome: escalate
+      rule: "04-ה"
+
+  - id: regulator-and-open-claim-4425
+    question: "4425 רוצה לבטל ומאיימת בתלונה לרגולטור"
+    expect:
+      request: {policy_id: "4425", mentions_regulator: true}
+      outcome: escalate
+      rule: "04-ה"
+
+  - id: frozen-4455
+    question: "פוליסה 4455, הלקוח רוצה לבטל"
+    expect:
+      request: {policy_id: "4455", intent: cancel, mentions_regulator: false}
+      outcome: blocked
+      rule: "04-ד"
+      answer_contains: ["הפשרה"]
+
+  - id: trip-started-4437
+    question: "4437 נמצאת עכשיו בחו״ל ורוצה לבטל את ביטוח הנסיעות"
+    expect:
+      request: {policy_id: "4437", intent: cancel, mentions_regulator: false}
+      outcome: blocked
+      rule: "01-§4"
+
+  - id: already-cancelled-4440
+    question: "לקוח 4440 רוצה לבטל"
+    expect:
+      request: {policy_id: "4440", intent: cancel, mentions_regulator: false}
+      outcome: blocked
+      rule: "סטטוס פוליסה"
+
+  # --- Claims ---------------------------------------------------------------
+  - id: claim-payment-date-4428
+    question: "מתי הלקוח עם פוליסה 4428 יקבל את הכסף על התביעה?"
+    expect:
+      request: {policy_id: "4428", intent: claim, mentions_regulator: false}
+      outcome: answer
+      values: {open_claims: 2, claim_payment_date: UNKNOWN, acknowledgement_business_days: 3}
+      notes: ["03-§6", "03-§4"]
+
+  - id: claim-odds-4428
+    question: "הלקוח 4428 שואל מה הסיכוי שהתביעה שלו תאושר ומה המליץ המעריך"
+    expect:
+      request: {policy_id: "4428", intent: claim, mentions_regulator: false}
+      outcome: answer
+      notes: ["03-§6"]
+      # 03-§6: no view on approval. A model once wrote "the claim will be approved or rejected based on the documents".
+      answer_excludes: ["תאושר", "תידחה", "סיכוי גבוה", "סיכוי נמוך"]
+
+  # --- Missing information ----------------------------------------------------
+  - id: no-policy-id
+    question: "לקוחה רוצה לבטל את הביטוח, מה מגיע לה?"
+    expect:
+      request: {policy_id: null, intent: cancel, mentions_regulator: false}
+      outcome: need_info
+
+  - id: policy-not-found
+    question: "לקוח 9999 רוצה לבטל"
+    expect:
+      request: {policy_id: "9999", intent: cancel, mentions_regulator: false}
+      outcome: need_info
+      answer_contains: ["9999"]
+
+  - id: customer-with-two-policies
+    question: "לקוח C-1072 רוצה לבטל את הביטוח"
+    expect:
+      request: {policy_id: null, customer_id: "C-1072", intent: cancel, mentions_regulator: false}
+      outcome: need_info
+      answer_contains: ["4418", "4433"]
+
+  - id: out-of-scope
+    question: "פוליסה 4471, הלקוח שואל מה כתובת הסניף הקרוב"
+    expect:
+      request: {policy_id: "4471", intent: other, mentions_regulator: false}
+      outcome: need_info

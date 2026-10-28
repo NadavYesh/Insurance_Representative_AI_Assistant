@@ -9,6 +9,33 @@ from decimal import Decimal
 
 from assistant.forms import Decision, Unknown
 
+# How each rulebook value is called in Hebrew, for the writer and the plain answer.
+LABELS = {
+    "cooling_off": "בתקופת התחרטות",
+    "seniority_months": "ותק בחודשים",
+    "effective_date": "מועד כניסת הביטול לתוקף",
+    "cancellation_fee": "דמי ביטול (₪)",
+    "seniority_bonus_rate_percent": "שיעור מענק ותק (%)",
+    "seniority_bonus": "מענק ותק (₪)",
+    "prorated_premium": "החזר החלק היחסי של הפרמיה (₪)",
+    "days_since_last_payment": "ימים מאז התשלום האחרון",
+    "arrears_debt": "חוב פיגורים (₪)",
+    "refund_estimate": "החזר משוער (₪)",
+    "refund_transfer_business_days": "ההחזר מועבר תוך (ימי עסקים)",
+    "open_claims": "תביעות פתוחות",
+    "claim_stage": "שלב הטיפול בתביעה",
+    "acknowledgement_business_days": "אישור קבלת תביעה תוך (ימי עסקים)",
+    "assessor_appointment_business_days": "מינוי מעריך תוך (ימי עסקים)",
+    "claim_payment_date": "מועד תשלום התביעה",
+}
+
+
+# How a value is built from others, in words (02-§2), so the writer explains it right.
+CALCULATIONS = {
+    "refund_estimate": "החלק היחסי של הפרמיה − דמי ביטול + מענק ותק − חוב פיגורים; לא פחות מאפס",
+    "seniority_bonus": "שיעור מענק הוותק × פרמיה חודשית × 12",
+}
+
 
 def decision_facts(decision: Decision) -> dict:
     facts: dict = {"intent": decision.request.intent.value}
@@ -29,7 +56,9 @@ def decision_facts(decision: Decision) -> dict:
     facts["values"] = [
         {
             "name": v.name,
+            "label": LABELS.get(v.name, v.name),
             "value": _plain(v.value),
+            **({"calculation": CALCULATIONS[v.name]} if v.name in CALCULATIONS else {}),
             **({"unknown_reason": v.value.reason} if isinstance(v.value, Unknown) else {}),
             "rule": v.rule_id,
             "is_estimate": v.is_estimate,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Protocol, TypeVar
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from pydantic import BaseModel
 
 M = TypeVar("M", bound=BaseModel)
@@ -30,22 +30,28 @@ class LLM(Protocol):
 class OpenAILLM:
     # The rep is live on the phone (Ronit's requirement #4): fail fast rather than hang.
     def __init__(self, model: str, api_key: str | None = None, timeout: float = 15.0) -> None:
-        api_key = api_key or os.environ.get(API_KEY_VAR)
+        api_key = api_key or os.environ.get(API_KEY_VAR) or os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise LLMError(f"Set {API_KEY_VAR} in code/.env")
         self._client = OpenAI(api_key=api_key, timeout=timeout, max_retries=1)
         self._model = model
 
     def parse(self, instructions: str, text: str, schema: type[M]) -> M:
-        response = self._client.responses.parse(
-            model=self._model, instructions=instructions, input=text, text_format=schema
-        )
+        try:
+            response = self._client.responses.parse(
+                model=self._model, instructions=instructions, input=text, text_format=schema
+            )
+        except OpenAIError as e:
+            raise LLMError(f"OpenAI call failed: {e}") from e
         if response.output_parsed is None:
             raise LLMError("The model returned no structured output")
         return response.output_parsed
 
     def write(self, instructions: str, text: str) -> str:
-        response = self._client.responses.create(model=self._model, instructions=instructions, input=text)
+        try:
+            response = self._client.responses.create(model=self._model, instructions=instructions, input=text)
+        except OpenAIError as e:
+            raise LLMError(f"OpenAI call failed: {e}") from e
         if not response.output_text.strip():
             raise LLMError("The model returned an empty answer")
         return response.output_text

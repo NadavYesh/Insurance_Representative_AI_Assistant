@@ -1,0 +1,5 @@
+{
+    "model_name": "gpt-4.1-mini",
+    "policies_csv": "../data/policies.csv",
+    "today": "2026-10-25"
+}

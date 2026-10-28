@@ -7,14 +7,24 @@ from dataclasses import dataclass, field
 from datetime import date
 from types import MappingProxyType
 
+# import the classes that define a claim
 from assistant.forms import Block, Intent, Maybe, Policy, Question, Request, Value
 
 ALL_INTENTS = frozenset(Intent)
 
+# A rule's condition: a function of the Case, or plain True for "always".
+type Condition = Callable[[Case], bool] | bool
+
+
+def holds(condition: Condition, case: Case) -> bool:
+    return condition if isinstance(condition, bool) else condition(case)
+
 
 @dataclass(frozen=True)
 class Case:
-    """Everything a rule may look at."""
+    """
+    This class gathers all information to conclude a decision. 
+    Everything a rule may look at."""
 
     request: Request
     policy: Policy | None  # None only for rules with needs_policy=False
@@ -35,11 +45,13 @@ class Case:
 
 @dataclass(frozen=True)
 class BlockingRule:
-    """A stop sign: when it applies, the rep gets a fixed reply instead of an answer."""
+    """
+    This is a rule. 
+    A stop sign: when it applies, the rep gets a fixed reply instead of an answer."""
 
     rule_id: str
     reason: str
-    applies: Callable[[Case], bool]
+    applies: Condition
     route_to: str | None = None  # None blocks the request; a name escalates it
     response_time: str | None = None
     intents: frozenset[Intent] = ALL_INTENTS
@@ -53,14 +65,19 @@ class BlockingRule:
 class Row:
     """One line of a decision table. The first row whose `when` holds gives the value.
 
+    `then` is a function of the Case, or the value itself when it is fixed.
+
     `asks` lists facts from the rep that `then` needs. If the row applies and one of
     them hasn't been asked yet, the engine asks the rep instead of computing.
     """
 
     rule_id: str
-    when: Callable[[Case], bool]
-    then: Callable[[Case], Maybe[object]]
+    when: Condition
+    then: Callable[[Case], Maybe[object]] | object
     asks: tuple[Question, ...] = ()
+
+    def value(self, case: Case) -> Maybe[object]:
+        return self.then(case) if callable(self.then) else self.then
 
 
 @dataclass(frozen=True)
@@ -79,5 +96,5 @@ class NoteRule:
 
     rule_id: str
     text: str
-    applies: Callable[[Case], bool]
+    applies: Condition
     intents: frozenset[Intent] = ALL_INTENTS

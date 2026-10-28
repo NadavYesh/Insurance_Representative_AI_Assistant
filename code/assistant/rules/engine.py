@@ -1,4 +1,4 @@
-"""RuleEngine: turns a Request and the policy data into a Decision. No LLM, no guessing."""
+"""RuleEngine: turns a Request and the policy data into a Decision."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from datetime import date
 from types import MappingProxyType
 
 from assistant.forms import Decision, Intent, Note, Outcome, Policy, Question, Request, UnknownBranchError, Value
-from assistant.rules.base import BlockingRule, Case, DecisionTable, NoteRule
+from assistant.rules.base import BlockingRule, Case, DecisionTable, NoteRule, holds
 from assistant.sources import PolicyDataError, PolicySource
 
-
+# a one class module: a rule engine
 class RuleEngine:
     def __init__(
         self,
@@ -27,6 +27,9 @@ class RuleEngine:
         self._today = today
 
     def decide(self, request: Request) -> Decision:
+        '''
+        Returbs a decision for a Request type. 
+        '''
         try:
             policy, lookup_problem = self._find_policy(request)
             customer_policies = tuple(self._source.get_customer_policies(policy.customer_id)) if policy else ()
@@ -36,39 +39,48 @@ class RuleEngine:
             lookup_problem = f"רשומת הפוליסה במערכת פגומה ולא ניתן לענות על סמך הנתונים. יש לדווח לתמיכה. ({e})"
         case = Case(request, policy, customer_policies, self._today)
 
+
+        # --------------------------------- BLOCKING PROCEDURE
         # Blocking rules come first and are all checked, so the manager sees every reason.
         blocks = tuple(
             rule.block()
             for rule in self._blocking_rules
-            if request.intent in rule.intents
-            and (policy is not None or not rule.needs_policy)
-            and rule.applies(case)
+            if request.intent in rule.intents and (policy is not None or not rule.needs_policy) and holds(rule.applies, case)
         )
-        if blocks:
+        if blocks: # blocked decision
             outcome = Outcome.ESCALATE if blocks[0].route_to else Outcome.BLOCKED
             return Decision(request, outcome, policy, blocks=blocks)
 
+
+        # --------------------------------- OTHER PROBLEMS (NO ANSWER)
+        # cannot find policy
         if lookup_problem:
             return Decision(request, Outcome.NEED_INFO, policy, notes=(Note(lookup_problem),))
-        assert policy is not None
+        assert policy is not None # unnecessary, really just a guard for crashing if the policy is none even though we made it till here
+
+        # if just a general question
         if request.intent is Intent.OTHER:
             note = Note("הכלי עונה רק על שאלות ביטול, החזר ותביעות.")
             return Decision(request, Outcome.NEED_INFO, policy, notes=(note,))
 
+
+        # --------------------------------- IF THERE'RE QUESTIONS FROM THE DECISION TABLES
         values, questions = self._run_tables(case)
         if questions:
             return Decision(request, Outcome.NEED_INFO, policy, questions=questions)
+
 
         case = Case(request, policy, customer_policies, self._today, MappingProxyType(values))
         notes = tuple(
             Note(rule.text, rule.rule_id)
             for rule in self._note_rules
-            if request.intent in rule.intents and rule.applies(case)
+            if request.intent in rule.intents and holds(rule.applies, case)
         )
+        # --------------------------------- FINAL ANSWER
         return Decision(request, Outcome.ANSWER, policy, values=tuple(values.values()), notes=notes)
 
     def _find_policy(self, request: Request) -> tuple[Policy | None, str | None]:
-        """The policy the request is about, or why it couldn't be pinned down."""
+        """Finds the policy based on policy id or customer id. """
         if request.policy_id:
             policy = self._source.get_policy(request.policy_id)
             if policy is None:
@@ -82,6 +94,7 @@ class RuleEngine:
             return policy, None
 
         if request.customer_id:
+            # only return if one policy exists. otherwise ask for policy id. 
             policies = self._source.get_customer_policies(request.customer_id)
             if not policies:
                 return None, f"לקוח {request.customer_id} לא נמצא במערכת."
@@ -103,7 +116,7 @@ class RuleEngine:
                 # A row that can't tell whether it applies, or can't compute, because it
                 # branched on an Unknown makes the value Unknown, with that reason.
                 try:
-                    if not row.when(table_case):
+                    if not holds(row.when, table_case):
                         continue
                 except UnknownBranchError as e:
                     values[table.name] = Value(table.name, e.unknown, row.rule_id, table.is_estimate)
@@ -114,7 +127,7 @@ class RuleEngine:
                     return values, missing
 
                 try:
-                    result = row.then(table_case)
+                    result = row.value(table_case)
                 except UnknownBranchError as e:
                     result = e.unknown
                 values[table.name] = Value(table.name, result, row.rule_id, table.is_estimate)

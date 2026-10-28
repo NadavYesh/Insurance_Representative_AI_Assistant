@@ -102,7 +102,7 @@ class Outcome(StrEnum):
 
 # --- Policy ----------------------------------------------------------------
 
-_NOT_IN_CSV = "not provided by the policy data source"
+_NOT_IN_CSV = "המידע אינו קיים במערכת הפוליסות"
 
 
 @dataclass(frozen=True)
@@ -195,7 +195,7 @@ class Value:
     """One value a decision table worked out, with the row it came from."""
 
     name: str  # e.g. "cancellation_fee", "effective_date"
-    value: Maybe[Decimal | date | int | bool]
+    value: Maybe[Decimal | date | int | bool | str]
     rule_id: str
     is_estimate: bool = False  # Refunds 02-§5: refunds are always estimates
 

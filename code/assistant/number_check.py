@@ -1,6 +1,6 @@
 """NumberCheck: every number in a written answer must come from the Decision.
 
-The last line of defence against an invented amount or date (Ronit's requirement #1).
+The last line of defense against an invented amount or date (Ronit's requirement #1).
 """
 
 import json

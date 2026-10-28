@@ -1,0 +1,290 @@
+"""The company rulebook: data/policies/01–04 written as rules the RuleEngine runs.
+
+Every rule cites its source as "<doc>-<section>": 01 cancellation, 02 refunds,
+03 claims, 04 exceptions. 04 overrides the others, so its rows sit above the
+rules they change.
+
+"Today" is the date the rep asks; a cancellation request is taken as received
+today (01-§1 requires it in writing, see the 01-§1 note).
+"""
+
+from __future__ import annotations
+
+import calendar
+from datetime import date, timedelta
+from decimal import Decimal
+
+from assistant.forms import Intent, PolicyStatus, Product, Question, Unknown, is_unknown
+from assistant.rules.base import BlockingRule, Case, DecisionTable, NoteRule, Row
+
+CANCELLATION = frozenset({Intent.CANCEL, Intent.REFUND}) # *********************************
+CLAIMS = frozenset({Intent.CLAIM}) 
+
+SHIFT_MANAGER = "מנהל משמרת"
+
+CLAIM_PAID = Question(
+    "claim_paid_last_12_months",
+    "האם שולמה ללקוח תביעה ב-12 החודשים האחרונים? (כן / לא / לא יודע)",
+    "02-§3",
+)
+
+
+# --- Helpers -----------------------------------------------------------------
+
+
+def months_between(start: date, end: date) -> int:
+    """Whole months from start to end; 0 if end is before start."""
+    months = (end.year - start.year) * 12 + (end.month - start.month) - (end.day < start.day)
+    return max(months, 0)
+
+
+def month_end(d: date) -> date:
+    return d.replace(day=calendar.monthrange(d.year, d.month)[1])
+
+
+def in_cooling_off(c: Case) -> bool:
+    # 01-§2: within 14 days of the start. A policy that hasn't started yet counts too.
+    return (c.today - c.known_policy.start_date).days <= 14
+
+
+def bonus_rate(months: int) -> Decimal:
+    """Seniority bonus as a percent of the annual premium (02-§2ג).
+
+    The table's brackets share their edges ("1 to 3", "3 to 5"); an edge goes to
+    the higher bracket, so exactly 3 years earns 10%.
+    """
+    if months < 12:
+        return Decimal(0)
+    if months < 36:
+        return Decimal(5)
+    if months <= 60:
+        return Decimal(10)
+    return Decimal(15)
+
+
+def paid_through(c: Case) -> date:
+    """The end of the period the customer has paid for.
+
+    The CSV doesn't have it. Premiums are monthly, so the last payment is taken to
+    cover the rest of its month (02-§2א note says so to the rep).
+    """
+    policy = c.known_policy
+    if not is_unknown(policy.paid_through):
+        return policy.paid_through
+    return month_end(policy.last_payment_date)
+
+
+def _refund_balance(c: Case):
+    """02-§2: prorated part − cancellation fee + seniority bonus, less any debt (01-§5).
+    Unknown if any part is."""
+    return (
+        c.value("prorated_premium")
+        - c.value("cancellation_fee")
+        + c.value("seniority_bonus")
+        - c.value("arrears_debt")
+    )
+
+
+# --- Blocking rules, most important first -------------------------------------
+
+BLOCKING_RULES = (
+    BlockingRule(
+        "04-ה",
+        "הלקוח הזכיר תלונה לרשות שוק ההון, ביטוח וחיסכון",
+        lambda c: c.request.mentions_regulator,
+        route_to=SHIFT_MANAGER,
+        needs_policy=False,
+    ),
+    BlockingRule(
+        "01-§6",
+        "לפוליסה יש תביעה פתוחה. ביטול דורש אישור מנהל משמרת, והנציג אינו מוסמך לאשר, לדחות או להעריך סכומים",
+        lambda c: c.known_policy.open_claims > 0,
+        route_to=SHIFT_MANAGER,
+        response_time="2 ימי עסקים",
+        intents=CANCELLATION,
+    ),
+    BlockingRule(
+        "04-ד",
+        "פוליסה מוקפאת אינה ניתנת לביטול. על הלקוח לבקש הפשרה דרך מחלקת גבייה, ורק אחר כך להגיש בקשת ביטול",
+        lambda c: c.known_policy.status is PolicyStatus.FROZEN,
+        intents=CANCELLATION,
+    ),
+    BlockingRule(
+        "סטטוס פוליסה",
+        "הפוליסה כבר מבוטלת. אין בנתונים מידע על החזר שבוצע; יש לבדוק מול מחלקת הכספים",
+        lambda c: c.known_policy.status is PolicyStatus.CANCELLED,
+        intents=CANCELLATION,
+    ),
+    BlockingRule(
+        "01-§4",
+        "הנסיעה כבר החלה. פוליסת נסיעות ניתנת לביטול רק עד יום לפני תחילת הנסיעה, ולא יינתן החזר",
+        lambda c: c.known_policy.product is Product.TRAVEL and c.today >= c.known_policy.start_date,
+        intents=CANCELLATION,
+    ),
+)
+
+
+# --- Decision tables, in dependency order --------------------------------------
+
+
+def _table(name: str, *rows: Row, intents=CANCELLATION, is_estimate: bool = False) -> DecisionTable:
+    return DecisionTable(name, rows, intents, is_estimate)
+
+
+CANCELLATION_TABLES = (
+    _table("cooling_off", Row("01-§2", True, in_cooling_off)),
+    _table("seniority_months", Row("02-§2ג", True, lambda c: months_between(c.known_policy.start_date, c.today))),
+    _table(
+        "effective_date",
+        Row("01-§2", lambda c: c.value("cooling_off"), lambda c: c.today),
+        Row(
+            "04-ב",
+            lambda c: c.known_policy.product is Product.HEALTH and c.known_policy.start_date < date(2024, 1, 1),
+            lambda c: c.today + timedelta(days=30),
+        ),
+        Row("01-§1", True, lambda c: month_end(c.today)),
+    ),
+    _table(
+        "cancellation_fee",
+        Row("01-§2", lambda c: c.value("cooling_off"), Decimal(0)),
+        Row("04-א", lambda c: c.known_policy.product is Product.CAR, Decimal(150)),
+        Row("01-§3", lambda c: c.value("seniority_months") >= 12, Decimal(0)),
+        Row("01-§3", True, Decimal(50)),
+    ),
+    _table(
+        "seniority_bonus_rate_percent",
+        Row("02-§2ג", lambda c: c.value("seniority_months") < 12, Decimal(0)),
+        Row(
+            "02-§3",
+            lambda c: c.known_policy.product is Product.HEALTH,
+            # "I don't know" is Unknown; branching on it leaves this rate (and the bonus) Unknown.
+            lambda c: Decimal(0) if c.request.claim_paid_last_12_months else bonus_rate(c.value("seniority_months")),
+            asks=(CLAIM_PAID,),
+        ),
+        Row("02-§2ג", True, lambda c: bonus_rate(c.value("seniority_months"))),
+    ),
+    _table(
+        "seniority_bonus",
+        Row("02-§2ג", True, lambda c: c.value("seniority_bonus_rate_percent") / 100 * c.known_policy.monthly_premium * 12),
+        is_estimate=True,
+    ),
+    _table(
+        "prorated_premium",
+        Row(
+            "01-§2",
+            lambda c: c.value("cooling_off"),
+            Unknown("בתקופת ההתחרטות הלקוח זכאי להחזר מלא של כל הפרמיה ששולמה, אך סכום הפרמיה ששולם אינו בנתונים"),
+        ),
+        Row("02-§2א", lambda c: paid_through(c) <= c.value("effective_date"), Decimal(0)),
+        Row("02-§2א", True, Unknown("הלקוח שילם מראש מעבר למועד הביטול; החלק היחסי ייקבע במחלקת הכספים")),
+        is_estimate=True,
+    ),
+    _table("days_since_last_payment", Row("01-§5", True, lambda c: (c.today - c.known_policy.last_payment_date).days)),
+    _table(
+        "arrears_debt",
+        Row(
+            "01-§5",
+            lambda c: c.value("days_since_last_payment") > 60,
+            Unknown("הלקוח בפיגור תשלומים (יותר מ-60 יום), אך סכום החוב אינו בנתונים"),
+        ),
+        Row("01-§5", True, Decimal(0)),
+    ),
+    _table(
+        "refund_estimate",
+        # Fees and debt are offset against the refund (01-§3, 01-§5); it never goes below 0.
+        Row("02-§2", lambda c: _refund_balance(c) < 0, Decimal(0)),
+        Row("02-§2", True, _refund_balance),
+        is_estimate=True,
+    ),
+    _table("refund_transfer_business_days", Row("02-§4", True, 14)),
+)
+
+
+CLAIM_TABLES = (
+    _table("open_claims", Row("03-§3", True, lambda c: c.known_policy.open_claims), intents=CLAIMS),
+    _table("claim_stage", Row("03-§3", True, lambda c: c.known_policy.claim_stage), intents=CLAIMS),
+    _table("acknowledgement_business_days", Row("03-§2", True, 3), intents=CLAIMS),
+    _table("assessor_appointment_business_days", Row("03-§2", True, 10), intents=CLAIMS),
+    _table("claim_payment_date", Row("03-§2", True, Unknown("הנוהל אינו קובע מועד לתשלום תביעה מאושרת")), intents=CLAIMS),
+)
+
+TABLES = CANCELLATION_TABLES + CLAIM_TABLES
+
+
+# --- Notes --------------------------------------------------------------------
+
+
+def _row_used(c: Case, table: str, rule_id: str) -> bool:
+    return table in c.values and c.values[table].rule_id == rule_id
+
+
+def _documents(product: Product, text: str) -> NoteRule:
+    return NoteRule("03-§4", text, lambda c: c.known_policy.product is product, CLAIMS)
+
+
+NOTE_RULES = (
+    NoteRule(
+        "01-§1",
+        "ביטול מחייב בקשה בכתב (מייל, טופס באתר או מכתב); בקשה טלפונית אינה מספיקה. יש לשלוח ללקוח קישור לטופס. "
+        "המועדים חושבו בהנחה שהבקשה בכתב מתקבלת היום.",
+        True,
+        frozenset({Intent.CANCEL}),
+    ),
+    NoteRule(
+        "04-ג",
+        "ללקוח פוליסות נוספות. ביטול פוליסה זו מבטל את הנחת ריבוי הפוליסות (5%) על הפוליסות הנותרות החל מחודש "
+        "החיוב הבא. יש ליידע את הלקוח לפני הביטול.",
+        lambda c: any(
+            p.policy_id != c.known_policy.policy_id and p.status is not PolicyStatus.CANCELLED
+            for p in c.customer_policies
+        ),
+        CANCELLATION,
+    ),
+    NoteRule(
+        "04-ב",
+        "פוליסת בריאות מהדור הקודם: הביטול נכנס לתוקף 30 יום מקבלת הבקשה, והלקוח מחויב על 30 הימים הללו.",
+        lambda c: _row_used(c, "effective_date", "04-ב"),
+        CANCELLATION,
+    ),
+    NoteRule(
+        "01-§4",
+        "פוליסת נסיעות ניתנת לביטול רק עד יום לפני מועד תחילת הנסיעה.",
+        lambda c: c.known_policy.product is Product.TRAVEL,
+        CANCELLATION,
+    ),
+    NoteRule(
+        "02-§2א",
+        "החלק היחסי חושב בהנחה שהפרמיה משולמת חודשית והתשלום האחרון מכסה את החודש שבו שולם.",
+        lambda c: _row_used(c, "prorated_premium", "02-§2א") and is_unknown(c.known_policy.paid_through),
+        CANCELLATION,
+    ),
+    NoteRule(
+        "01-§5",
+        "הלקוח בפיגור תשלומים: החוב מקוזז מכל החזר. אם החוב גדול מההחזר, הלקוח מופנה למחלקת גבייה להסדר.",
+        lambda c: c.value("days_since_last_payment") > 60,
+        CANCELLATION,
+    ),
+    NoteRule(
+        "02-§2",
+        "דמי הביטול גבוהים מההחזר המחושב, ולכן ההחזר המשוער הוא 0. הנוהל אינו מגדיר אם היתרה נגבית מהלקוח.",
+        # A known refund means every part of the balance is known, so this can't branch on Unknown.
+        lambda c: not is_unknown(c.value("refund_estimate")) and _refund_balance(c) < 0,
+        CANCELLATION,
+    ),
+    NoteRule(
+        "02-§5",
+        "כל סכום הוא הערכה בלבד; הסכום הסופי נקבע ומאושר על ידי מחלקת הכספים. אין להתחייב ללקוח על סכום מדויק.",
+        True,
+        CANCELLATION,
+    ),
+    NoteRule(
+        "03-§6",
+        "אין להעריך סיכויי אישור או לנקוב בסכומים, ואין למסור את המלצת המעריך לפני שההחלטה נשלחה בכתב.",
+        True,
+        CLAIMS,
+    ),
+    _documents(Product.CAR, "מסמכים לתביעת רכב: דוח משטרה (אם רלוונטי), הצעת מחיר ממוסך, צילומי הנזק."),
+    _documents(Product.HOME, "מסמכים לתביעת דירה: צילומי הנזק, קבלות על רכוש שניזוק, ודוח שמאי אם הנזק מעל 10,000 ₪."),
+    _documents(Product.HEALTH, "מסמכים לתביעת בריאות: מסמכים רפואיים, קבלות, הפניית רופא."),
+    _documents(Product.TRAVEL, 'מסמכים לתביעת נסיעות: כרטיסי טיסה, אישורים רפואיים מחו"ל, קבלות.'),
+)

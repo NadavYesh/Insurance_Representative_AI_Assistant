@@ -8,7 +8,7 @@ from datetime import date
 from types import MappingProxyType
 
 # import the classes that define a claim
-from assistant.forms import Block, Intent, Maybe, Policy, Question, Request, Value
+from assistant.forms import Block, Intent, Maybe, Policy, Question, Request, UnknownBranchError, Value
 
 ALL_INTENTS = frozenset(Intent)
 
@@ -69,15 +69,27 @@ class Row:
 
     `asks` lists facts from the rep that `then` needs. If the row applies and one of
     them hasn't been asked yet, the engine asks the rep instead of computing.
+
+    `explain` writes out how the value was worked out, with the actual inputs, from
+    the Case and the result (e.g. "10% × 410 ₪ × 12 = 492 ₪"). Text when it is fixed.
     """
 
     rule_id: str
     when: Condition
     then: Callable[[Case], Maybe[object]] | object
     asks: tuple[Question, ...] = ()
+    explain: Callable[[Case, object], str] | str | None = None
 
     def value(self, case: Case) -> Maybe[object]:
         return self.then(case) if callable(self.then) else self.then
+
+    def explanation(self, case: Case, result: object) -> str | None:
+        if not callable(self.explain):
+            return self.explain
+        try:
+            return self.explain(case, result)
+        except UnknownBranchError:  # can't explain a branch on missing data; the reason is shown instead
+            return None
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ import calendar
 from datetime import date, timedelta
 from decimal import Decimal
 
+from assistant.formatting import show
 from assistant.forms import Intent, PolicyStatus, Product, Question, Unknown, is_unknown
 from assistant.rules.base import BlockingRule, Case, DecisionTable, NoteRule, Row
 
@@ -85,6 +86,65 @@ def _refund_balance(c: Case):
     )
 
 
+# --- Explanations: how each value was worked out, shown to the rep ------------------
+
+
+def _n(value: object) -> str:
+    """A number inside a formula; "?" when unknown (its reason is shown elsewhere)."""
+    return "?" if is_unknown(value) else show(value)
+
+
+def _bracket(months: int) -> str:
+    if months < 12:
+        return "פחות משנה"
+    if months < 36:
+        return "שנה עד 3 שנים"
+    if months <= 60:
+        return "3 עד 5 שנים"
+    return "מעל 5 שנים"
+
+
+def _explain_cooling_off(c: Case, result: bool) -> str:
+    start = c.known_policy.start_date
+    days = (c.today - start).days
+    when = f"{days} ימים מתחילת הפוליסה ({show(start)})" if days >= 0 else f"הפוליסה מתחילה בעוד {-days} ימים ({show(start)})"
+    return f"{when}; עד 14 ימים = תקופת התחרטות → {show(result)}"
+
+
+def _explain_rate(c: Case, result: Decimal) -> str:
+    months = c.value("seniority_months")
+    return f"ותק {months} חודשים ({_bracket(months)}) → {show(result)}%"
+
+
+def _explain_health_rate(c: Case, result: Decimal) -> str:
+    if c.request.claim_paid_last_12_months:  # Unknown here means no explanation; the reason is shown
+        return "שולמה ללקוח תביעה ב-12 החודשים האחרונים → 0%"
+    return _explain_rate(c, result) + ", לא שולמה תביעה ב-12 החודשים האחרונים"
+
+
+def _explain_bonus(c: Case, result: object) -> str:
+    rate = c.value("seniority_bonus_rate_percent")
+    return f"{_n(rate)}% × {show(c.known_policy.monthly_premium)} ₪ × 12 = {_n(result)} ₪"
+
+
+def _explain_days_since_payment(c: Case, result: int) -> str:
+    arrears = "מעל 60 = פיגור" if result > 60 else "עד 60 = אין פיגור"
+    return f"{show(c.today)} − {show(c.known_policy.last_payment_date)} = {result} ימים; {arrears}"
+
+
+def _explain_refund(c: Case, result: object) -> str:
+    parts = (
+        f"{_n(c.value('prorated_premium'))} (חלק יחסי) − {_n(c.value('cancellation_fee'))} (דמי ביטול)"
+        f" + {_n(c.value('seniority_bonus'))} (מענק ותק) − {_n(c.value('arrears_debt'))} (חוב)"
+    )
+    balance = _refund_balance(c)
+    if is_unknown(balance):
+        return f"{parts} = לא ידוע"
+    if balance < 0:
+        return f"{parts} = {show(balance)} ₪ → לא פחות מ-0 = 0 ₪"
+    return f"{parts} = {show(balance)} ₪"
+
+
 # --- Blocking rules, most important first -------------------------------------
 
 BLOCKING_RULES = (
@@ -132,40 +192,68 @@ def _table(name: str, *rows: Row, intents=CANCELLATION, is_estimate: bool = Fals
 
 
 CANCELLATION_TABLES = (
-    _table("cooling_off", Row("01-§2", True, in_cooling_off)),
-    _table("seniority_months", Row("02-§2ג", True, lambda c: months_between(c.known_policy.start_date, c.today))),
+    _table("cooling_off", Row("01-§2", True, in_cooling_off, explain=_explain_cooling_off)),
+    _table(
+        "seniority_months",
+        Row(
+            "02-§2ג",
+            True,
+            lambda c: months_between(c.known_policy.start_date, c.today),
+            explain=lambda c, r: f"מ-{show(c.known_policy.start_date)} עד {show(c.today)} = {r} חודשים מלאים",
+        ),
+    ),
     _table(
         "effective_date",
-        Row("01-§2", lambda c: c.value("cooling_off"), lambda c: c.today),
+        Row(
+            "01-§2",
+            lambda c: c.value("cooling_off"),
+            lambda c: c.today,
+            explain=lambda c, r: f"בתקופת התחרטות הביטול מיידי = {show(r)}",
+        ),
         Row(
             "04-ב",
             lambda c: c.known_policy.product is Product.HEALTH and c.known_policy.start_date < date(2024, 1, 1),
             lambda c: c.today + timedelta(days=30),
+            explain=lambda c, r: (
+                f"בריאות שנפתחה לפני 01/01/2024 ({show(c.known_policy.start_date)}): "
+                f"{show(c.today)} + 30 ימים = {show(r)}"
+            ),
         ),
-        Row("01-§1", True, lambda c: month_end(c.today)),
+        Row("01-§1", True, lambda c: month_end(c.today), explain=lambda c, r: f"סוף החודש של {show(c.today)} = {show(r)}"),
     ),
     _table(
         "cancellation_fee",
-        Row("01-§2", lambda c: c.value("cooling_off"), Decimal(0)),
-        Row("04-א", lambda c: c.known_policy.product is Product.CAR, Decimal(150)),
-        Row("01-§3", lambda c: c.value("seniority_months") >= 12, Decimal(0)),
-        Row("01-§3", True, Decimal(50)),
+        Row("01-§2", lambda c: c.value("cooling_off"), Decimal(0), explain="בתקופת התחרטות → 0 ₪"),
+        Row("04-א", lambda c: c.known_policy.product is Product.CAR, Decimal(150), explain="פוליסת רכב → 150 ₪ בכל ותק"),
+        Row(
+            "01-§3",
+            lambda c: c.value("seniority_months") >= 12,
+            Decimal(0),
+            explain=lambda c, r: f"ותק {c.value('seniority_months')} חודשים (12 ומעלה) → 0 ₪",
+        ),
+        Row("01-§3", True, Decimal(50), explain=lambda c, r: f"ותק {c.value('seniority_months')} חודשים (פחות מ-12) → 50 ₪"),
     ),
     _table(
         "seniority_bonus_rate_percent",
-        Row("02-§2ג", lambda c: c.value("seniority_months") < 12, Decimal(0)),
+        Row("02-§2ג", lambda c: c.value("seniority_months") < 12, Decimal(0), explain=_explain_rate),
         Row(
             "02-§3",
             lambda c: c.known_policy.product is Product.HEALTH,
             # "I don't know" is Unknown; branching on it leaves this rate (and the bonus) Unknown.
             lambda c: Decimal(0) if c.request.claim_paid_last_12_months else bonus_rate(c.value("seniority_months")),
             asks=(CLAIM_PAID,),
+            explain=_explain_health_rate,
         ),
-        Row("02-§2ג", True, lambda c: bonus_rate(c.value("seniority_months"))),
+        Row("02-§2ג", True, lambda c: bonus_rate(c.value("seniority_months")), explain=_explain_rate),
     ),
     _table(
         "seniority_bonus",
-        Row("02-§2ג", True, lambda c: c.value("seniority_bonus_rate_percent") / 100 * c.known_policy.monthly_premium * 12),
+        Row(
+            "02-§2ג",
+            True,
+            lambda c: c.value("seniority_bonus_rate_percent") / 100 * c.known_policy.monthly_premium * 12,
+            explain=_explain_bonus,
+        ),
         is_estimate=True,
     ),
     _table(
@@ -175,11 +263,21 @@ CANCELLATION_TABLES = (
             lambda c: c.value("cooling_off"),
             Unknown("בתקופת ההתחרטות הלקוח זכאי להחזר מלא של כל הפרמיה ששולמה, אך סכום הפרמיה ששולם אינו בנתונים"),
         ),
-        Row("02-§2א", lambda c: paid_through(c) <= c.value("effective_date"), Decimal(0)),
+        Row(
+            "02-§2א",
+            lambda c: paid_through(c) <= c.value("effective_date"),
+            Decimal(0),
+            explain=lambda c, r: (
+                f"שולם עד {show(paid_through(c))}, לא אחרי מועד הביטול ({show(c.value('effective_date'))}) → 0 ₪"
+            ),
+        ),
         Row("02-§2א", True, Unknown("הלקוח שילם מראש מעבר למועד הביטול; החלק היחסי ייקבע במחלקת הכספים")),
         is_estimate=True,
     ),
-    _table("days_since_last_payment", Row("01-§5", True, lambda c: (c.today - c.known_policy.last_payment_date).days)),
+    _table(
+        "days_since_last_payment",
+        Row("01-§5", True, lambda c: (c.today - c.known_policy.last_payment_date).days, explain=_explain_days_since_payment),
+    ),
     _table(
         "arrears_debt",
         Row(
@@ -187,13 +285,13 @@ CANCELLATION_TABLES = (
             lambda c: c.value("days_since_last_payment") > 60,
             Unknown("הלקוח בפיגור תשלומים (יותר מ-60 יום), אך סכום החוב אינו בנתונים"),
         ),
-        Row("01-§5", True, Decimal(0)),
+        Row("01-§5", True, Decimal(0), explain="אין פיגור → 0 ₪"),
     ),
     _table(
         "refund_estimate",
         # Fees and debt are offset against the refund (01-§3, 01-§5); it never goes below 0.
-        Row("02-§2", lambda c: _refund_balance(c) < 0, Decimal(0)),
-        Row("02-§2", True, _refund_balance),
+        Row("02-§2", lambda c: _refund_balance(c) < 0, Decimal(0), explain=_explain_refund),
+        Row("02-§2", True, _refund_balance, explain=_explain_refund),
         is_estimate=True,
     ),
     _table("refund_transfer_business_days", Row("02-§4", True, 14)),

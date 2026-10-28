@@ -201,6 +201,9 @@ class Value:
     value: Maybe[Decimal | date | int | bool | str]
     rule_id: str
     is_estimate: bool = False  # Refunds 02-§5: refunds are always estimates
+    # How it was worked out, with the actual inputs, e.g. "10% × 410 ₪ × 12 = 492 ₪".
+    # Shown to the rep so they can check the answer by eye.
+    explanation: str | None = None
 
 
 @dataclass(frozen=True)

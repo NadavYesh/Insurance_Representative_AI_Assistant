@@ -4,11 +4,9 @@ No LLM here (Ronit's requirement #3): a case above the rep's authority must not
 depend on how a model phrases it.
 """
 
-from datetime import date
-from decimal import Decimal
-
 from assistant.facts import LABELS
-from assistant.forms import Decision, Outcome, Unknown, is_unknown
+from assistant.formatting import show
+from assistant.forms import Decision, Outcome, is_unknown
 
 
 class FixedReply:
@@ -55,8 +53,25 @@ class FixedReply:
         lines = [f"פוליסה {p.policy_id} · {p.customer_name} · {p.product} · {p.status}"]
         for v in decision.values:
             estimate = " (הערכה)" if v.is_estimate and not is_unknown(v.value) else ""
-            lines.append(f"- {LABELS.get(v.name, v.name)}: {_show(v.value)}{estimate} (נוהל {v.rule_id})")
-        return "\n".join(lines) + self.notes_block(decision)
+            lines.append(f"- {LABELS.get(v.name, v.name)}: {show(v.value)}{estimate} (נוהל {v.rule_id})")
+        return "\n".join(lines) + self.answer_footer(decision)
+
+    def answer_footer(self, decision: Decision) -> str:
+        """What code adds under every answer, written or plain: the notes, then the
+        full calculation."""
+        return self.notes_block(decision) + self.calculation_block(decision)
+
+    def calculation_block(self, decision: Decision) -> str:
+        """Every value with how it was worked out, from the rules themselves, so the
+        rep can check the answer by eye."""
+        if not decision.values:
+            return ""
+        lines = []
+        for v in decision.values:
+            how = v.explanation or show(v.value)
+            estimate = " (הערכה)" if v.is_estimate and not is_unknown(v.value) else ""
+            lines.append(f"- {LABELS.get(v.name, v.name)}: {how}{estimate} (נוהל {v.rule_id})")
+        return "\n\nחישוב מלא (לבדיקה):\n" + "\n".join(lines)
 
     def notes_block(self, decision: Decision) -> str:
         """The notes, word for word. Added by code after any answer, so a required
@@ -72,14 +87,3 @@ class FixedReply:
             return []
         return ["סיבות נוספות:"] + [f"- {b.reason} (נוהל {b.rule_id})" for b in others]
 
-
-def _show(value: object) -> str:
-    if isinstance(value, Unknown):
-        return f"לא ידוע: {value.reason}" if value.reason else "לא ידוע"
-    if isinstance(value, bool):
-        return "כן" if value else "לא"
-    if isinstance(value, Decimal):
-        return format(value.normalize(), "f")
-    if isinstance(value, date):
-        return value.strftime("%d/%m/%Y")
-    return str(value)

@@ -95,4 +95,4 @@ class Assistant:
         bad = self.check.unsupported(text, decision)
         if bad:
             return Reply(self.fixed.plain_answer(decision), decision, ReplySource.PLAIN, tuple(bad), timings=timings)
-        return Reply(text.strip() + self.fixed.notes_block(decision), decision, ReplySource.WRITTEN, timings=timings)
+        return Reply(text.strip() + self.fixed.answer_footer(decision), decision, ReplySource.WRITTEN, timings=timings)

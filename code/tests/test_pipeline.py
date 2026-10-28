@@ -114,3 +114,13 @@ def test_rep_thinking_time_is_not_counted():
 
     reply = assistant(FakeLLM(CANCEL_BY_CUSTOMER, written="תשובה"), *TWO_POLICIES).answer("C-1088 רוצה לבטל", slow_rep)
     assert reply.seconds < 0.2
+
+
+@pytest.mark.parametrize("written", ["דמי ביטול ₪150", "דמי ביטול ₪999"])
+def test_full_calculation_is_at_the_bottom_of_every_answer(written):
+    """Written or fallback, the calculation comes from code, last."""
+    reply = assistant(FakeLLM(CANCEL_4471, written=written)).answer("4471 רוצה לבטל", never_asked)
+    assert "חישוב מלא (לבדיקה):" in reply.text
+    refund = reply.decision.value("refund_estimate").explanation
+    assert reply.text.rstrip().splitlines()[-2].startswith("- החזר משוער")
+    assert refund in reply.text

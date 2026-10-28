@@ -30,13 +30,6 @@ LABELS = {
 }
 
 
-# How a value is built from others, in words (02-§2), so the writer explains it right.
-CALCULATIONS = {
-    "refund_estimate": "החלק היחסי של הפרמיה − דמי ביטול + מענק ותק − חוב פיגורים; לא פחות מאפס",
-    "seniority_bonus": "שיעור מענק הוותק × פרמיה חודשית × 12",
-}
-
-
 def decision_facts(decision: Decision) -> dict:
     facts: dict = {"intent": decision.request.intent.value}
     if decision.policy is not None:
@@ -58,7 +51,6 @@ def decision_facts(decision: Decision) -> dict:
             "name": v.name,
             "label": LABELS.get(v.name, v.name),
             "value": _plain(v.value),
-            **({"calculation": CALCULATIONS[v.name]} if v.name in CALCULATIONS else {}),
             **({"unknown_reason": v.value.reason} if isinstance(v.value, Unknown) else {}),
             "rule": v.rule_id,
             "is_estimate": v.is_estimate,

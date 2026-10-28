@@ -117,7 +117,8 @@ class RuleEngine:
                     if not holds(row.when, table_case):
                         continue
                 except UnknownBranchError as e:
-                    values[table.name] = Value(table.name, e.unknown, row.rule_id, table.is_estimate)
+                    explanation = row.explanation(table_case, e.unknown)
+                    values[table.name] = Value(table.name, e.unknown, row.rule_id, table.is_estimate, explanation)
                     break
 
                 missing = tuple(q for q in row.asks if getattr(case.request, q.field) is None)
@@ -128,7 +129,8 @@ class RuleEngine:
                     result = row.value(table_case)
                 except UnknownBranchError as e:
                     result = e.unknown
-                values[table.name] = Value(table.name, result, row.rule_id, table.is_estimate)
+                explanation = row.explanation(table_case, result)
+                values[table.name] = Value(table.name, result, row.rule_id, table.is_estimate, explanation)
                 break
         return values, ()
 

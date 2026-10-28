@@ -227,3 +227,36 @@ def test_every_active_policy_gets_a_decision(real):
         for intent in (Intent.CANCEL, Intent.REFUND, Intent.CLAIM):
             for answer in (None, True, False, Unknown("x")):
                 ask(real, policy_id, intent=intent, claim_paid_last_12_months=answer)
+
+
+# --- Explanations: the calculation the rep sees ---
+
+
+def test_4471_calculation_shows_every_input(real):
+    decision = ask(real, "4471")
+    assert decision.value("seniority_months").explanation == "מ-10/02/2023 עד 25/10/2026 = 44 חודשים מלאים"
+    assert decision.value("seniority_bonus").explanation == "10% × 410 ₪ × 12 = 492 ₪"
+    assert decision.value("refund_estimate").explanation == (
+        "0 (חלק יחסי) − 150 (דמי ביטול) + 492 (מענק ותק) − 0 (חוב) = 342 ₪"
+    )
+
+
+def test_4441_calculation_shows_the_floor_at_zero(real):
+    explanation = ask(real, "4441").value("refund_estimate").explanation
+    assert explanation.endswith("= -150 ₪ → לא פחות מ-0 = 0 ₪")
+
+
+def test_unknown_inputs_show_as_question_marks(real):
+    decision = ask(real, "4401", claim_paid_last_12_months=Unknown("הנציג לא יודע"))
+    assert decision.value("seniority_bonus_rate_percent").explanation is None  # its reason is shown instead
+    assert decision.value("seniority_bonus").explanation == "?% × 160 ₪ × 12 = ? ₪"
+    assert decision.value("refund_estimate").explanation.endswith("+ ? (מענק ותק) − 0 (חוב) = לא ידוע")
+
+
+def test_every_calculated_cancellation_value_is_explained(real):
+    """Fixed values (e.g. 14 business days) and Unknowns show themselves; everything else explains."""
+    for policy_id in ["4471", "4401", "4403", "4408", "4412", "4416", "4421", "4441", "4449"]:
+        decision = ask(real, policy_id, claim_paid_last_12_months=False)
+        for v in decision.values:
+            if v.name != "refund_transfer_business_days" and not is_unknown(v.value):
+                assert v.explanation, f"{policy_id}: {v.name} has no explanation"

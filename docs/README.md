@@ -66,6 +66,10 @@ Everything in between is plain code: finding the policy, blocking rules, calcula
 - **Every number** in a written answer is checked against the calculated values. If one
   doesn't match, the tool shows a plain list of the values instead.
 - **Notes the rep must pass on** are added by code, word for word.
+- **The full calculation** is added by code at the bottom of every answer: each value
+  with its inputs and the rule behind it (e.g. `0 (חלק יחסי) − 150 (דמי ביטול) + 492
+  (מענק ותק) − 0 (חוב) = 342 ₪`), so the rep can check it by eye. Each rule writes
+  its own explanation, so the explanation can't drift from what was actually computed.
 
 See [`architecture.md`](architecture.md) and [`DECISIONS.md`](DECISIONS.md).
 

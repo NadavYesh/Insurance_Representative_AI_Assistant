@@ -100,6 +100,11 @@ def check(case: dict, reply: Reply, offline: bool) -> list[str]:
     failures += [f"note {rule_id}: missing" for rule_id in expect.get("notes", []) if rule_id not in note_ids]
 
     failures += [f"answer drops note {n.rule_id}" for n in decision.notes if n.text not in reply.text]
+    failures += [
+        f"answer lacks the calculation of {v.name}"
+        for v in decision.values
+        if v.explanation and v.explanation not in reply.text
+    ]
     failures += [f"answer lacks {text!r}" for text in expect.get("answer_contains", []) if text not in reply.text]
     failures += [f"answer has {text!r}" for text in expect.get("answer_excludes", []) if text in reply.text]
 

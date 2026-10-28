@@ -12,37 +12,26 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from assistant.answers import hint, parse_answer
 from assistant.config import DEFAULT_PATH, load_config
-from assistant.forms import Maybe, Question, Unknown
+from assistant.forms import Question
 from assistant.llm import LLMError, OpenAILLM
 from assistant.pipeline import Assistant, Reply, ReplySource
 from assistant.sources import CsvPolicySource
 
 ENV_PATH = Path(__file__).parents[1] / ".env"
 
-_YES = {"כן", "y", "yes"}
-_NO = {"לא", "n", "no"}
-_DONT_KNOW = {"לא יודע", "לא יודעת", "?", "idk", "dont know", "don't know"}
-
-
-def parse_rep_answer(text: str) -> Maybe[bool] | None:
-    """The rep's yes / no / don't know; None if it isn't one of those."""
-    text = " ".join(text.strip().lower().split())
-    if text in _DONT_KNOW:
-        return Unknown("הנציג לא יודע")
-    if text in _YES:
-        return True
-    if text in _NO:
-        return False
-    return None
-
-
-def ask_rep(question: Question) -> Maybe[bool]:
+def ask_rep(question: Question) -> object | None:
+    """Asks until the answer is valid. An empty line skips the question (returns None)."""
+    print(f"❓ {question.text}")
     while True:
-        answer = parse_rep_answer(input(f"❓ {question.text} "))
+        text = input(f"   ({hint(question)}; Enter לדילוג) > ")
+        if not text.strip():
+            return None
+        answer = parse_answer(question, text)
         if answer is not None:
             return answer
-        print("נא לענות: כן / לא / לא יודע")
+        print(f"   תשובה לא תקינה. נא לענות: {hint(question)}")
 
 
 def show(reply: Reply) -> None:

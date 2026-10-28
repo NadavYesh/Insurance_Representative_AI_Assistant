@@ -119,20 +119,36 @@ def test_notes_are_added():
     assert [n.rule_id for n in decision.notes] == ["04-ג"]
 
 
+OTHER_CUSTOMER = make_policy(policy_id="5000", customer_id="C-2000")
+
+
 @pytest.mark.parametrize(
-    "request_fields",
+    "request_fields, choices",
     [
-        dict(policy_id="9999"),  # not found
-        dict(policy_id=None),  # nothing given
-        dict(policy_id="4471", customer_id="C-0001"),  # policy belongs to someone else
-        dict(policy_id=None, customer_id="C-1088"),  # customer has two policies
+        (dict(policy_id="9999"), ()),  # not found: any policy ID
+        (dict(policy_id=None), ()),  # nothing given
+        (dict(policy_id=None, customer_id="C-0001"), ()),  # customer not found
+        (dict(policy_id=None, customer_id="C-1088"), ("4471", "4472")),  # customer has two policies
+        (dict(policy_id="4471", customer_id="C-2000"), ("5000",)),  # policy belongs to someone else
     ],
 )
-def test_lookup_problems_need_info(request_fields):
-    decision = engine(make_policy(), make_policy(policy_id="4472")).decide(cancel(**request_fields))
+def test_lookup_problems_ask_the_rep_which_policy(request_fields, choices):
+    decision = engine(make_policy(), make_policy(policy_id="4472"), OTHER_CUSTOMER).decide(cancel(**request_fields))
     assert decision.outcome is Outcome.NEED_INFO
     assert decision.policy is None
-    assert len(decision.notes) == 1
+    [question] = decision.questions
+    assert question.field == "policy_id"
+    assert question.choices == choices
+
+
+def test_unknown_customer_id_does_not_block_a_valid_policy():
+    decision = engine(make_policy()).decide(cancel(customer_id="C-0001"))
+    assert decision.outcome is Outcome.ANSWER
+
+
+def test_missing_policy_and_intent_are_asked_together():
+    decision = engine(make_policy()).decide(cancel(policy_id=None, intent=Intent.OTHER))
+    assert [q.field for q in decision.questions] == ["policy_id", "intent"]
 
 
 def test_customer_with_one_policy_is_found_by_customer_id():
@@ -146,6 +162,9 @@ def test_broken_record_is_reported_not_guessed():
     assert "פגומה" in decision.notes[0].text
 
 
-def test_other_intent_is_out_of_scope():
+def test_other_intent_asks_what_the_customer_wants():
     decision = engine(make_policy()).decide(cancel(intent=Intent.OTHER))
     assert decision.outcome is Outcome.NEED_INFO
+    [question] = decision.questions
+    assert question.field == "intent"
+    assert question.choices == ("ביטול", "החזר", "תביעה")

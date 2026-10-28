@@ -2,14 +2,15 @@
 # data/policies/01–04. "today" is pinned so results don't drift with config.json.
 #
 # expect:
-#   request          what the QuestionReader must extract (full mode only)
+#   request          what the QuestionReader must extract from the question (in --offline
+#                    mode, the Request the rules start from)
 #   outcome          answer | blocked | escalate | need_info
 #   rule             the deciding block's rule (blocked / escalate)
 #   values           name: value, or UNKNOWN
 #   notes            rule IDs of notes that must be present
 #   answer_contains  text the reply must include
 #   answer_excludes  text the reply must not include (e.g. an amount that must not be given)
-# rep_answers: how the rep answers follow-up questions (yes / no / unknown)
+# rep_answers: what the rep types when asked a follow-up question, by field ("" skips it)
 
 today: 2026-10-25
 
@@ -107,7 +108,7 @@ cases:
   # --- Health: the rep is asked about paid claims -----------------------------
   - id: old-health-no-claim-4401
     question: "פוליסה 4401, הלקוחה רוצה לבטל את ביטוח הבריאות"
-    rep_answers: {claim_paid_last_12_months: no}
+    rep_answers: {claim_paid_last_12_months: "לא"}
     expect:
       request: {policy_id: "4401", intent: cancel, mentions_regulator: false}
       outcome: answer
@@ -117,7 +118,7 @@ cases:
 
   - id: old-health-rep-does-not-know-4401
     question: "פוליסה 4401, הלקוחה רוצה לבטל את ביטוח הבריאות"
-    rep_answers: {claim_paid_last_12_months: unknown}
+    rep_answers: {claim_paid_last_12_months: "לא יודע"}
     expect:
       request: {policy_id: "4401", intent: cancel, mentions_regulator: false}
       outcome: answer
@@ -126,7 +127,7 @@ cases:
 
   - id: old-health-claim-paid-4427
     question: "4427 מבקשת לבטל"
-    rep_answers: {claim_paid_last_12_months: yes}
+    rep_answers: {claim_paid_last_12_months: "כן"}
     expect:
       request: {policy_id: "4427", intent: cancel, mentions_regulator: false}
       outcome: answer
@@ -134,7 +135,7 @@ cases:
 
   - id: health-2025-no-claim-4449
     question: "הלקוח של פוליסה 4449 רוצה לבטל"
-    rep_answers: {claim_paid_last_12_months: no}
+    rep_answers: {claim_paid_last_12_months: "לא"}
     expect:
       request: {policy_id: "4449", intent: cancel, mentions_regulator: false}
       outcome: answer
@@ -218,29 +219,61 @@ cases:
       # 03-§6: no view on approval. A model once wrote "the claim will be approved or rejected based on the documents".
       answer_excludes: ["תאושר", "תידחה", "סיכוי גבוה", "סיכוי נמוך"]
 
-  # --- Missing information ----------------------------------------------------
-  - id: no-policy-id
-    question: "לקוחה רוצה לבטל את הביטוח, מה מגיע לה?"
-    expect:
-      request: {policy_id: null, intent: cancel, mentions_regulator: false}
-      outcome: need_info
-
-  - id: policy-not-found
-    question: "לקוח 9999 רוצה לבטל"
-    expect:
-      request: {policy_id: "9999", intent: cancel, mentions_regulator: false}
-      outcome: need_info
-      answer_contains: ["9999"]
-
-  - id: customer-with-two-policies
+  # --- Missing information: the rep answers in the same conversation ---------
+  # "request" is what the reader extracts from the first question. The rep's
+  # answers are applied on top of it; "values" are checked on the final result.
+  - id: two-policies-rep-picks-4418
     question: "לקוח C-1072 רוצה לבטל את הביטוח"
+    rep_answers: {policy_id: "4418"}
+    expect:
+      request: {policy_id: null, customer_id: "C-1072", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {cancellation_fee: 150, seniority_bonus: 624, refund_estimate: 474}
+      notes: ["04-ג"]
+
+  - id: two-policies-rep-skips
+    question: "לקוח C-1072 רוצה לבטל את הביטוח"
+    rep_answers: {policy_id: ""}
     expect:
       request: {policy_id: null, customer_id: "C-1072", intent: cancel, mentions_regulator: false}
       outcome: need_info
       answer_contains: ["4418", "4433"]
 
-  - id: out-of-scope
+  - id: no-policy-id-rep-gives-it
+    question: "לקוחה רוצה לבטל את הביטוח, מה מגיע לה?"
+    rep_answers: {policy_id: "פוליסה 4471"}
+    expect:
+      request: {policy_id: null, intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {refund_estimate: 342}
+
+  - id: policy-not-found-rep-corrects
+    question: "לקוח 9999 רוצה לבטל"
+    rep_answers: {policy_id: "4471"}
+    expect:
+      request: {policy_id: "9999", intent: cancel, mentions_regulator: false}
+      outcome: answer
+      values: {refund_estimate: 342}
+
+  - id: policy-not-found-rep-skips
+    question: "לקוח 9999 רוצה לבטל"
+    rep_answers: {policy_id: ""}
+    expect:
+      request: {policy_id: "9999", intent: cancel, mentions_regulator: false}
+      outcome: need_info
+      answer_contains: ["9999"]
+
+  - id: bare-policy-id-rep-gives-intent
+    question: "פוליסה 4471"
+    rep_answers: {intent: "ביטול"}
+    expect:
+      request: {policy_id: "4471", intent: other, mentions_regulator: false}
+      outcome: answer
+      values: {refund_estimate: 342}
+
+  - id: out-of-scope-rep-skips
     question: "פוליסה 4471, הלקוח שואל מה כתובת הסניף הקרוב"
+    rep_answers: {intent: ""}
     expect:
       request: {policy_id: "4471", intent: other, mentions_regulator: false}
       outcome: need_info

@@ -1,8 +1,8 @@
+import time
 from datetime import date
 
 import pytest
 
-from assistant.__main__ import parse_rep_answer
 from assistant.forms import Product, Unknown, is_unknown
 from assistant.llm import LLMError
 from assistant.pipeline import Assistant, ReplySource
@@ -80,15 +80,37 @@ def test_timings_are_recorded():
     assert reply.seconds >= 0
 
 
-@pytest.mark.parametrize(
-    "text, expected",
-    [("כן", True), (" Yes ", True), ("לא", False), ("n", False), ("לא  יודע", None), ("אולי", "invalid")],
-)
-def test_parse_rep_answer(text, expected):
-    result = parse_rep_answer(text)
-    if expected is None:
-        assert is_unknown(result)
-    elif expected == "invalid":
-        assert result is None
-    else:
-        assert result is expected
+# --- Follow-up questions in the same conversation ---
+
+TWO_POLICIES = (make_policy(), make_policy(policy_id="4472", product=Product.HOME))
+CANCEL_BY_CUSTOMER = CANCEL_4471 | {"policy_id": None, "customer_id": "C-1088"}
+
+
+def test_rep_picks_a_policy_without_starting_over():
+    asked = []
+
+    def rep(question):
+        asked.append(question)
+        return "4472"
+
+    reply = assistant(FakeLLM(CANCEL_BY_CUSTOMER, written="תשובה"), *TWO_POLICIES).answer("C-1088 רוצה לבטל", rep)
+    assert [q.choices for q in asked] == [("4471", "4472")]
+    assert reply.decision.policy.policy_id == "4472"
+    assert reply.first_request.policy_id is None  # what was read, before the rep's answer
+
+
+def test_rep_skipping_a_question_explains_what_is_missing():
+    llm = FakeLLM(CANCEL_BY_CUSTOMER, written="should not be used")
+    reply = assistant(llm, *TWO_POLICIES).answer("C-1088 רוצה לבטל", lambda q: None)
+    assert reply.source is ReplySource.FIXED
+    assert "4471" in reply.text and "4472" in reply.text
+    assert len(llm.calls) == 1  # the reader only
+
+
+def test_rep_thinking_time_is_not_counted():
+    def slow_rep(question):
+        time.sleep(0.2)
+        return "4471"
+
+    reply = assistant(FakeLLM(CANCEL_BY_CUSTOMER, written="תשובה"), *TWO_POLICIES).answer("C-1088 רוצה לבטל", slow_rep)
+    assert reply.seconds < 0.2

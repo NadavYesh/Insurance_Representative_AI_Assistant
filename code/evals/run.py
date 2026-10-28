@@ -19,15 +19,15 @@ import yaml
 from dotenv import load_dotenv
 
 from assistant.__main__ import ENV_PATH
+from assistant.answers import parse_answer
 from assistant.config import load_config
-from assistant.forms import Intent, Question, Request, Unknown, is_unknown
+from assistant.forms import Intent, Question, Request, is_unknown
 from assistant.llm import LLMError, OpenAILLM
 from assistant.pipeline import Assistant, Reply, ReplySource
 from assistant.sources import CsvPolicySource
 
 CASES = Path(__file__).with_name("cases.yaml")
 MAX_SECONDS = 30  # Ronit's requirement #4
-REP_ANSWERS = {"yes": True, "no": False, "unknown": Unknown("הנציג לא יודע"), True: True, False: False}
 
 
 class OfflineLLM:
@@ -45,9 +45,16 @@ def run_case(assistant: Assistant, case: dict, offline: bool) -> tuple[list[str]
     answers = case.get("rep_answers", {})
 
     def ask_rep(question: Question):
+        # The rep's typed text goes through the same parser as in the CLI; "" skips.
         if question.field not in answers:
             raise AssertionError(f"rep was asked {question.field}, but the case gives no answer")
-        return REP_ANSWERS[answers[question.field]]
+        text = str(answers[question.field])
+        if not text:
+            return None
+        parsed = parse_answer(question, text)
+        if parsed is None:
+            raise AssertionError(f"case answer {text!r} isn't valid for {question.field}")
+        return parsed
 
     if offline:
         fields = {k: v for k, v in expect["request"].items() if k != "intent"}
@@ -66,7 +73,7 @@ def check(case: dict, reply: Reply, offline: bool) -> list[str]:
 
     if not offline:
         for field_name, expected in expect["request"].items():
-            actual = getattr(decision.request, field_name)
+            actual = getattr(reply.first_request, field_name)
             actual = actual.value if isinstance(actual, Intent) else actual
             if actual != expected:
                 failures.append(f"request.{field_name}: expected {expected!r}, got {actual!r}")

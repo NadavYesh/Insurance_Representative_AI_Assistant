@@ -117,7 +117,7 @@ def test_rep_dont_know_blocks_dependent_decisions():
 
 def test_question_must_name_a_rep_answerable_field():
     with pytest.raises(ValueError):
-        Question("policy_id", "?", "02-§3")
+        Question("customer_name", "?", "02-§3")
 
 
 # --- Decision ---

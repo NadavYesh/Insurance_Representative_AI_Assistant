@@ -23,14 +23,23 @@ python3 -m venv .venv
 .venv/bin/python -m assistant                                      # interactive; empty line exits
 ```
 
-For some health policies the tool asks the rep a follow-up question: has a claim been
-paid in the last 12 months? The rep answers `כן` (yes), `לא` (no) or `לא יודע` (don't know).
+When something is missing, the tool asks the rep a follow-up question in the same
+conversation, so the rep doesn't have to ask again from the start:
+
+- which policy, when the customer has several (only their policy IDs are accepted);
+- the policy number, when none was given or it wasn't found;
+- whether the question is about a cancellation, a refund or a claim, when that's unclear;
+- for some health policies, whether a claim was paid in the last 12 months
+  (`כן` / `לא` / `לא יודע`, i.e. yes / no / don't know).
+
+Answers are checked by code, not the model; an invalid one is asked again. An empty
+line skips the question, and the tool says what's missing.
 
 ## Tests and evals
 
 ```bash
 .venv/bin/pytest                         # unit tests: every rule, the engine, the workers (no LLM)
-.venv/bin/python -m evals.run --offline  # 29 rep questions against the rules (no LLM, no key)
+.venv/bin/python -m evals.run --offline  # 32 rep questions against the rules (no LLM, no key)
 .venv/bin/python -m evals.run            # the same questions end to end with the real model
 ```
 
@@ -44,8 +53,8 @@ procedures. Each case checks:
 - text the answer must or must not contain (e.g. an amount that must not be given);
 - that it answered within 30 seconds.
 
-Latest full run: 29/29 cases passed, 17/17 written answers passed the number check,
-median 2.5s, max 3.6s.
+Latest full run: 32/32 cases passed, 21/21 written answers passed the number check,
+median 2.9s, max 5.2s. Time the rep spends answering a follow-up question isn't counted.
 
 ## How it works
 
@@ -81,7 +90,8 @@ See [`architecture.md`](architecture.md) and [`DECISIONS.md`](DECISIONS.md).
   - service times (acknowledgement in 3 business days, assessor in 10);
   - required documents for each product;
   - what may not be disclosed.
-- Missing information: no policy ID given, policy not found, a customer with several policies, a broken data row.
+- Missing information is asked for in the same conversation (see above). A broken data
+  row is reported, never guessed around.
 
 ## What doesn't (by design: the data isn't there)
 

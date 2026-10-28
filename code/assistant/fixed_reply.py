@@ -43,7 +43,7 @@ class FixedReply:
     def _need_info(self, decision: Decision) -> str:
         lines = ["❓ חסר מידע כדי לענות."]
         lines += [f"- {note.text}" for note in decision.notes]
-        lines += [f"- {q.text} (נוהל {q.rule_id})" for q in decision.questions]
+        lines += [f"- {q.text}" + (f" (נוהל {q.rule_id})" if q.rule_id else "") for q in decision.questions]
         return "\n".join(lines)
 
     def plain_answer(self, decision: Decision) -> str:

@@ -9,7 +9,7 @@ from datetime import date
 from enum import StrEnum
 
 from assistant.fixed_reply import FixedReply
-from assistant.forms import Decision, Maybe, Outcome, Question, Request
+from assistant.forms import Decision, Outcome, Question, Request
 from assistant.llm import LLM, AnswerWriter, LLMError, QuestionReader
 from assistant.number_check import NumberCheck
 from assistant.rules import BLOCKING_RULES, NOTE_RULES, TABLES, RuleEngine
@@ -25,15 +25,17 @@ class ReplySource(StrEnum):
 @dataclass(frozen=True)
 class Reply:
     text: str
-    decision: Decision
+    decision: Decision  # its request includes the rep's answers to follow-up questions
     source: ReplySource
     rejected_numbers: tuple[str, ...] = ()  # what NumberCheck caught, if it fell back
+    first_request: Request | None = None  # as read from the question, before any follow-up
     seconds: float = 0.0
     timings: dict[str, float] = field(default_factory=dict)
 
 
-# Asks the rep a Question; returns their answer, or Unknown for "I don't know".
-type AskRep = Callable[[Question], Maybe[bool]]
+# Asks the rep a Question. Returns the parsed answer (Unknown for "I don't know"),
+# or None if the rep skips it; the reply then explains what is missing.
+type AskRep = Callable[[Question], object | None]
 
 
 class Assistant:
@@ -51,18 +53,35 @@ class Assistant:
         reply = self.answer_request(request, ask_rep)
         return replace(
             reply,
-            seconds=time.perf_counter() - start,
+            seconds=reply.seconds + (read_done - start),
             timings={"read": read_done - start, **reply.timings},
         )
 
     def answer_request(self, request: Request, ask_rep: AskRep) -> Reply:
-        """From an already-read Request. Evals use this to test the rules without the reader."""
+        """From an already-read Request. Evals use this to test the rules without the reader.
+
+        `seconds` is the tool's own time: time the rep spends answering is left out.
+        """
+        start = time.perf_counter()
+        rep_time = 0.0
         decision = self.engine.decide(request)
-        # Ends: a Decision never asks a question that was already answered.
+        # Ends when the rep answers or skips; "I don't know" is never asked twice (see Decision).
         while decision.questions:
-            answers = {q.field: ask_rep(q) for q in decision.questions}
+            answers = {}
+            for q in decision.questions:
+                asked = time.perf_counter()
+                answer = ask_rep(q)
+                rep_time += time.perf_counter() - asked
+                if answer is None:  # skipped: say what's missing instead of answering
+                    reply = Reply(self.fixed.render(decision), decision, ReplySource.FIXED)
+                    return replace(reply, first_request=request, seconds=time.perf_counter() - start - rep_time)
+                answers[q.field] = answer
             decision = self.engine.decide(replace(decision.request, **answers))
 
+        reply = self._reply(decision)
+        return replace(reply, first_request=request, seconds=time.perf_counter() - start - rep_time)
+
+    def _reply(self, decision: Decision) -> Reply:
         if decision.outcome is not Outcome.ANSWER:
             return Reply(self.fixed.render(decision), decision, ReplySource.FIXED)
 

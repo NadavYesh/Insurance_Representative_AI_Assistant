@@ -31,12 +31,13 @@ class RuleEngine:
         Returbs a decision for a Request type. 
         '''
         try:
-            policy, lookup_problem = self._find_policy(request)
+            policy, which_policy = self._find_policy(request)
             customer_policies = tuple(self._source.get_customer_policies(policy.customer_id)) if policy else ()
         except PolicyDataError as e:
             # The record exists but is broken: say so, never "not found" or a guess.
-            policy, customer_policies = None, ()
-            lookup_problem = f"רשומת הפוליסה במערכת פגומה ולא ניתן לענות על סמך הנתונים. יש לדווח לתמיכה. ({e})"
+            # Asking the rep can't fix it, so this is a note, not a question.
+            note = Note(f"רשומת הפוליסה במערכת פגומה ולא ניתן לענות על סמך הנתונים. יש לדווח לתמיכה. ({e})")
+            return Decision(request, Outcome.NEED_INFO, notes=(note,))
         case = Case(request, policy, customer_policies, self._today)
 
 
@@ -52,16 +53,13 @@ class RuleEngine:
             return Decision(request, outcome, policy, blocks=blocks)
 
 
-        # --------------------------------- OTHER PROBLEMS (NO ANSWER)
-        # cannot find policy
-        if lookup_problem:
-            return Decision(request, Outcome.NEED_INFO, policy, notes=(Note(lookup_problem),))
+        # --------------------------------- MISSING INFO: ASK THE REP
+        # Which policy, and what the customer wants. Both are asked together, and the
+        # pipeline runs the engine again with the rep's answers.
+        questions = tuple(q for q in (which_policy, INTENT_QUESTION if request.intent is Intent.OTHER else None) if q)
+        if questions:
+            return Decision(request, Outcome.NEED_INFO, policy, questions=questions)
         assert policy is not None # unnecessary, really just a guard for crashing if the policy is none even though we made it till here
-
-        # if just a general question
-        if request.intent is Intent.OTHER:
-            note = Note("הכלי עונה רק על שאלות ביטול, החזר ותביעות.")
-            return Decision(request, Outcome.NEED_INFO, policy, notes=(note,))
 
 
         # --------------------------------- IF THERE'RE QUESTIONS FROM THE DECISION TABLES
@@ -79,31 +77,31 @@ class RuleEngine:
         # --------------------------------- FINAL ANSWER
         return Decision(request, Outcome.ANSWER, policy, values=tuple(values.values()), notes=notes)
 
-    def _find_policy(self, request: Request) -> tuple[Policy | None, str | None]:
-        """Finds the policy based on policy id or customer id. """
+    def _find_policy(self, request: Request) -> tuple[Policy | None, Question | None]:
+        """Finds the policy based on policy id or customer id, or asks the rep which one."""
+        # The customer's policies, if a customer ID was given and it exists.
+        customer_policies = self._source.get_customer_policies(request.customer_id) if request.customer_id else []
+
         if request.policy_id:
             policy = self._source.get_policy(request.policy_id)
             if policy is None:
-                return None, f"פוליסה {request.policy_id} לא נמצאה במערכת."
-            # Mismatch: don't run any rule on what may be the wrong policy.
-            if request.customer_id and request.customer_id != policy.customer_id:
-                return None, (
-                    f"פוליסה {policy.policy_id} שייכת ללקוח {policy.customer_id}, "
-                    f"לא ל-{request.customer_id}. יש לוודא את הפרטים."
+                return None, _ask_policy(f"פוליסה {request.policy_id} לא נמצאה במערכת.", customer_policies)
+            # Mismatch with a real customer: don't run any rule on what may be the wrong policy.
+            if customer_policies and policy.customer_id != request.customer_id:
+                return None, _ask_policy(
+                    f"פוליסה {policy.policy_id} שייכת ללקוח {policy.customer_id}, לא ל-{request.customer_id}.",
+                    customer_policies,
                 )
             return policy, None
 
         if request.customer_id:
-            # only return if one policy exists. otherwise ask for policy id. 
-            policies = self._source.get_customer_policies(request.customer_id)
-            if not policies:
-                return None, f"לקוח {request.customer_id} לא נמצא במערכת."
-            if len(policies) > 1:
-                ids = ", ".join(p.policy_id for p in policies)
-                return None, f"ללקוח {request.customer_id} יש כמה פוליסות ({ids}). על איזו מהן מדובר?"
-            return policies[0], None
+            if not customer_policies:
+                return None, _ask_policy(f"לקוח {request.customer_id} לא נמצא במערכת.", [])
+            if len(customer_policies) > 1:
+                return None, _ask_policy(f"ללקוח {request.customer_id} יש כמה פוליסות.", customer_policies)
+            return customer_policies[0], None
 
-        return None, "לא צוין מספר פוליסה או מספר לקוח."
+        return None, _ask_policy("לא צוין מספר פוליסה או מספר לקוח.", [])
 
     def _run_tables(self, case: Case) -> tuple[dict[str, Value], tuple[Question, ...]]:
         """Runs each table in order. Stops to ask the rep if a needed fact is missing."""
@@ -133,3 +131,18 @@ class RuleEngine:
                 values[table.name] = Value(table.name, result, row.rule_id, table.is_estimate)
                 break
         return values, ()
+
+
+INTENT_QUESTION = Question(
+    "intent",
+    "הכלי עונה על ביטול, החזר ותביעות. על מה הלקוח שואל?",
+    choices=("ביטול", "החזר", "תביעה"),
+)
+
+
+def _ask_policy(problem: str, options: Sequence[Policy]) -> Question:
+    """Asks which policy. With options (the customer's policies), only those are accepted."""
+    if not options:
+        return Question("policy_id", f"{problem} מה מספר הפוליסה?")
+    listed = ", ".join(f"{p.policy_id} ({p.product})" for p in options)
+    return Question("policy_id", f"{problem} על איזו פוליסה מדובר? {listed}", choices=tuple(p.policy_id for p in options))

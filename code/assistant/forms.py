@@ -162,19 +162,22 @@ class Question:
     """A fact the engine needs from the rep before it can decide.
 
     `field` names the Request attribute the answer fills in. The CLI asks `text`,
-    stores the answer (or Unknown for "I don't know") and runs the engine again.
+    stores the answer (or Unknown for "I don't know") and runs the engine again,
+    so the rep answers inside the same question instead of starting over.
     """
 
     field: str
     text: str  # in Hebrew, shown to the rep
-    rule_id: str  # the procedure that needs the fact
+    rule_id: str | None = None  # the procedure that needs the fact; None for a lookup
+    choices: tuple[str, ...] = ()  # the only answers accepted, e.g. the customer's policy IDs
 
     def __post_init__(self) -> None:
-        if self.field not in _REP_ANSWERABLE:
+        if self.field not in REP_ANSWERABLE:
             raise ValueError(f"Request has no fact the rep can answer called {self.field!r}")
 
 
-_REP_ANSWERABLE = {"claim_paid_last_12_months"}
+# Request fields the rep can fill in mid-question. assistant/answers.py parses each one.
+REP_ANSWERABLE = frozenset({"claim_paid_last_12_months", "policy_id", "intent"})
 
 
 # --- Decision --------------------------------------------------------------
@@ -234,9 +237,11 @@ class Decision:
         if self.questions:
             if self.outcome is not Outcome.NEED_INFO:
                 raise ValueError(f"A {self.outcome} decision can't ask the rep questions")
-            asked = [q.field for q in self.questions if getattr(self.request, q.field) is not None]
-            if asked:
-                raise ValueError(f"The rep already answered: {asked}")
+            # A wrong policy ID may be asked again, but "I don't know" is final:
+            # asking again would loop forever.
+            dont_know = [q.field for q in self.questions if is_unknown(getattr(self.request, q.field))]
+            if dont_know:
+                raise ValueError(f"The rep already said they don't know: {dont_know}")
 
         if self.outcome in (Outcome.BLOCKED, Outcome.ESCALATE):
             if not self.blocks:
@@ -276,5 +281,5 @@ class Decision:
         ids = [b.rule_id for b in self.blocks]
         ids += [v.rule_id for v in self.values]
         ids += [n.rule_id for n in self.notes if n.rule_id is not None]
-        ids += [q.rule_id for q in self.questions]
+        ids += [q.rule_id for q in self.questions if q.rule_id is not None]
         return tuple(dict.fromkeys(ids))

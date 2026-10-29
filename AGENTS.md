@@ -14,8 +14,8 @@ A take-home assignment (AI Builder role). The brief is `instructions/take_home_a
 
 ## Repo layout (paths relative to the repo root, where this file lives)
 
-- `AGENTS.md` (`CLAUDE.md` is a symlink to it) at the root.
-- `docs/`: deliverable docs (`README.md`, `QUESTIONS.md`, `DECISIONS.md`, `architecture.md`). `DECISIONS.md` and `QUESTIONS.md` are written in Hebrew; `README.md` is written in English.
+- `AGENTS.md` (`CLAUDE.md` is a symlink to it) and `README.md` (in English) at the root.
+- `docs/`: the other deliverable docs (`QUESTIONS.md`, `DECISIONS.md`, `architecture.md`). `DECISIONS.md` and `QUESTIONS.md` are written in Hebrew.
 - `code/`: all source code (`code/config.json`; secrets in `code/.env`, git-ignored).
 - `instructions/take_home_assignment.pdf`: the brief (git-ignored).
 - `data/`: input data (git-ignored, not committed).
@@ -36,7 +36,7 @@ look at @docs/architecture.md
 5. Nice to have: tell the customer *when* their claim will be paid. Note that the claims doc gives SLAs for acknowledgement (3 business days) and assessor appointment (10 business days) but **no payment timeline**. The tool must not invent one.
 6. "How will I know it answers correctly?" The submission needs real evaluation (an eval set or tests), not "I tried a few questions."
 
-## Required deliverables (`docs/`)
+## Required deliverables (`docs/`, except the README at the root)
 
 - `README.md`: how to run, what's required (keys, models, dependencies), and what works and what doesn't.
 - `QUESTIONS.md`: 3–5 questions for Ronit. For each: the assumption made, and what would change if the answer were the opposite.

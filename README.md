@@ -71,7 +71,7 @@ Everything in between is plain code: finding the policy, blocking rules, calcula
   (מענק ותק) − 0 (חוב) = 342 ₪`), so the rep can check it by eye. Each rule writes
   its own explanation, so the explanation can't drift from what was actually computed.
 
-See [`architecture.md`](architecture.md) and [`DECISIONS.md`](DECISIONS.md).
+See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISIONS.md).
 
 ## What works
 
@@ -108,4 +108,4 @@ See [`architecture.md`](architecture.md) and [`DECISIONS.md`](DECISIONS.md).
 - **Refunds outside a cancellation** (double charges, reduced cover) aren't handled.
 - **The written cancellation request** is assumed to arrive today.
 
-These are the open questions for the client in [`QUESTIONS.md`](QUESTIONS.md).
+These are the open questions for the client in [`QUESTIONS.md`](docs/QUESTIONS.md).

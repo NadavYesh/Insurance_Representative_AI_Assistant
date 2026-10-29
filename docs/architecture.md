@@ -109,4 +109,4 @@ classDiagram
 - **Easy to test.** Every guard and table row can be checked on its own, without calling the LLM.
 - **Fast.** At most two LLM calls per question. The rules themselves run instantly.
 
-More detail on these choices is in [`DECISIONS.md`](../DECISIONS.md).
+More detail on these choices is in [`DECISIONS.md`](DECISIONS.md).

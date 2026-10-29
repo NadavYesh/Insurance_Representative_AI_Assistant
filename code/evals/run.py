@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
-from assistant.__main__ import ENV_PATH
+from assistant.__main__ import ENV_PATH, use_utf8_console
 from assistant.answers import parse_answer
 from assistant.config import load_config
 from assistant.forms import Intent, Outcome, Question, Request, is_unknown
@@ -124,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-k", default="", help="only cases whose id contains this")
     parser.add_argument("-v", "--verbose", action="store_true", help="print every reply")
     args = parser.parse_args(argv)
+    use_utf8_console()
 
     suite = yaml.safe_load(CASES.read_text(encoding="utf-8"))
     today: date = suite["today"]

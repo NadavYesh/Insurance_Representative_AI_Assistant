@@ -19,6 +19,7 @@ import csv
 import random
 from datetime import date
 
+from assistant.__main__ import use_utf8_console
 from assistant.config import load_config
 from assistant.forms import Policy, Product
 from assistant.sources import CsvPolicySource
@@ -47,6 +48,7 @@ def sample(policies: list[Policy], seed: int = SEED, size: int = SIZE) -> list[P
 
 
 def main() -> None:
+    use_utf8_console()
     path = load_config().policies_csv
     # The IDs come from the file itself: PolicySource looks policies up, it doesn't list them.
     with open(path, encoding="utf-8-sig", newline="") as f:

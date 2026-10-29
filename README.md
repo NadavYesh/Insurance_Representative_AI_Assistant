@@ -30,6 +30,8 @@ regulator. So the model never decides anything:
 
 ## Setup and run
 
+macOS / Linux:
+
 ```bash
 cd code
 python3 -m venv .venv
@@ -38,6 +40,22 @@ python3 -m venv .venv
 .venv/bin/python -m assistant "לקוח 4471 רוצה לבטל, מה מגיע לו?"   # one question
 .venv/bin/python -m assistant                                      # interactive; empty line exits
 ```
+
+Windows (PowerShell or cmd):
+
+```bat
+cd code
+py -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+
+.venv\Scripts\python -m assistant "לקוח 4471 רוצה לבטל, מה מגיע לו?"
+.venv\Scripts\python -m assistant
+```
+
+The other commands below work the same way: on Windows, write `.venv\Scripts\`
+instead of `.venv/bin/`. Use Windows Terminal to see the Hebrew; it may show
+left-to-right, but the text is correct. Output is UTF-8 on every OS, so redirecting it to
+a file works too.
 
 When something is missing, the tool asks the rep a follow-up question in the same
 conversation, so the rep doesn't have to ask again from the start:

@@ -21,6 +21,14 @@ from assistant.sources import CsvPolicySource
 
 ENV_PATH = Path(__file__).parents[1] / ".env"
 
+
+def use_utf8_console() -> None:
+    """Hebrew in and out on any OS. On Windows, redirected output otherwise uses the
+    local code page and can't encode Hebrew."""
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
 def ask_rep(question: Question) -> object | None:
     """Asks until the answer is valid. An empty line skips the question (returns None)."""
     print(f"❓ {question.text}")
@@ -51,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_PATH)
     args = parser.parse_args(argv)
 
+    use_utf8_console()
     load_dotenv(ENV_PATH)
     config = load_config(args.config)
     source = CsvPolicySource(config.policies_csv)

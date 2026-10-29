@@ -39,12 +39,27 @@ line skips the question, and the tool says what's missing.
 
 ```bash
 .venv/bin/pytest                         # unit tests: every rule, the engine, the workers (no LLM)
-.venv/bin/python -m evals.run --offline  # 32 rep questions against the rules (no LLM, no key)
+.venv/bin/python -m evals.run --offline  # 31 rep questions against the rules (no LLM, no key)
 .venv/bin/python -m evals.run            # the same questions end to end with the real model
+.venv/bin/python -m evals.sample         # prints the 15 sampled policies (see below)
 ```
 
-`evals/cases.yaml` holds rep questions with expected results worked out by hand from the
-procedures. Each case checks:
+`evals/cases.yaml` has two parts:
+
+- **Policy sample (15 cases):** 25% of the policies, picked at random by
+  `evals/sample.py` with a fixed seed, so the same 15 come out every time. The only part
+  that isn't random: one travel policy with a future trip and one health policy are
+  drawn first, because they have rules of their own. Each expected value was worked out
+  by hand from the procedures and the policy's CSV row, and the calculation is written
+  next to the case, so a reviewer can check every case without trusting the tool.
+- **Conversation cases (16 cases):** what the model must understand (a regulator threat,
+  a claim question, a missing policy number) and how the tool talks to the rep. They
+  check the outcome and the wording, not amounts.
+
+The unit tests (`pytest`) cover the rules the sample doesn't happen to hit, such as
+arrears (4412), a frozen policy (4455) and the multi-policy discount (4418).
+
+Each case checks:
 
 - what the model extracted from the question;
 - the outcome (answer, blocked, escalate, or missing info) and the deciding rule;
@@ -53,8 +68,8 @@ procedures. Each case checks:
 - text the answer must or must not contain (e.g. an amount that must not be given);
 - that it answered within 30 seconds.
 
-Latest full run: 32/32 cases passed, 21/21 written answers passed the number check,
-median 2.9s, max 5.2s. Time the rep spends answering a follow-up question isn't counted.
+The full run with the model hasn't been redone on this set yet; offline, 31/31 pass.
+Time the rep spends answering a follow-up question isn't counted.
 
 ## How it works
 

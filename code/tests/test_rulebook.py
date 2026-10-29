@@ -337,6 +337,16 @@ def test_4428_claim_question(real):
     assert "03-§4" in rule_ids(decision.notes)
 
 
+def test_only_health_policies_ask_about_a_paid_claim(real):
+    """02-§3 is a health rule: no other product ever asks the rep, for any intent."""
+    for policy_id in [f"{n}" for n in range(4401, 4461)] + ["4471"]:
+        product = real.get_policy(policy_id).product
+        for intent in (Intent.CANCEL, Intent.REFUND, Intent.CLAIM):
+            fields = [q.field for q in ask(real, policy_id, intent=intent).questions]
+            if product is not Product.HEALTH or intent is Intent.CLAIM:
+                assert "claim_paid_last_12_months" not in fields, (policy_id, intent)
+
+
 def test_every_active_policy_gets_a_decision(real):
     """No rule crashes on any real policy, for any intent."""
     for policy_id in [f"{n}" for n in range(4401, 4461)] + ["4471"]:

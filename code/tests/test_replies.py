@@ -71,7 +71,6 @@ def test_same_decision_same_words():
         "הביטול ייכנס לתוקף ב-31.10.2026",
         "הביטול ייכנס לתוקף ב-31 באוקטובר 2026",
         "פוליסה 4471, לקוח C-1088, פרמיה 410",
-        "ההנחה של 5% תבוטל (נוהל 04-ג)",
     ],
 )
 def test_numbers_from_the_decision_pass(answer):
@@ -90,6 +89,12 @@ def test_numbers_from_the_decision_pass(answer):
 )
 def test_invented_numbers_are_caught(answer, bad):
     assert NumberCheck().unsupported(answer, ANSWER) == bad
+
+
+def test_numbers_from_notes_are_not_allowed_in_the_written_part():
+    """Notes are added by code under the answer, so the model must not restate them."""
+    decision = Decision(REQUEST, Outcome.ANSWER, make_policy(), notes=(Note("דוח שמאי מעל 777 ₪", "03-§4"),))
+    assert NumberCheck().unsupported("דוח שמאי מעל 777 ₪", decision) == ["777"]
 
 
 def test_numbers_from_the_question_alone_are_not_allowed():
@@ -137,6 +142,7 @@ def test_writer_sends_question_and_facts():
     _, text = llm.calls[0]
     assert REQUEST.question in text
     assert '"UNKNOWN"' in text and "לא ידוע אם שולמה תביעה" in text
+    assert "ההנחה של 5% תבוטל" not in text  # notes never reach the model, so it can't repeat them
 
 
 def test_writer_refuses_non_answers():

@@ -29,6 +29,7 @@ class Reply:
     source: ReplySource
     rejected_numbers: tuple[str, ...] = ()  # what NumberCheck caught, if it fell back
     first_request: Request | None = None  # as read from the question, before any follow-up
+    written: str | None = None  # the LLM's part alone, before code adds the notes and calculation
     seconds: float = 0.0
     timings: dict[str, float] = field(default_factory=dict)
 
@@ -95,4 +96,7 @@ class Assistant:
         bad = self.check.unsupported(text, decision)
         if bad:
             return Reply(self.fixed.plain_answer(decision), decision, ReplySource.PLAIN, tuple(bad), timings=timings)
-        return Reply(text.strip() + self.fixed.answer_footer(decision), decision, ReplySource.WRITTEN, timings=timings)
+        text = text.strip()
+        return Reply(
+            text + self.fixed.answer_footer(decision), decision, ReplySource.WRITTEN, written=text, timings=timings
+        )

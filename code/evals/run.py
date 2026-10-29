@@ -100,6 +100,10 @@ def check(case: dict, reply: Reply, offline: bool) -> list[str]:
     failures += [f"note {rule_id}: missing" for rule_id in expect.get("notes", []) if rule_id not in note_ids]
 
     failures += [f"answer drops note {n.rule_id}" for n in decision.notes if n.text not in reply.text]
+    if reply.written:
+        # Notes are added by code; the model restating one in its own words duplicates it.
+        note_only = {n.rule_id for n in decision.notes} - {v.rule_id for v in decision.values}
+        failures += [f"written part restates note {r}" for r in sorted(note_only) if r and r in reply.written]
     failures += [
         f"answer lacks the calculation of {v.name}"
         for v in decision.values

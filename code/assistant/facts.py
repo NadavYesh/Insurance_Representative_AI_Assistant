@@ -2,6 +2,9 @@
 
 The AnswerWriter gets exactly these, and NumberCheck allows only numbers that
 appear in them, so the two always agree on what the answer may contain.
+
+The notes are left out on purpose: code adds them word for word under the answer,
+and a model that sees them tends to repeat them in its own, shorter words.
 """
 
 from datetime import date
@@ -20,8 +23,7 @@ LABELS = {
     "prorated_premium": "החזר החלק היחסי של הפרמיה (₪)",
     "days_since_last_payment": "ימים מאז התשלום האחרון",
     "arrears_debt": "חוב פיגורים (₪)",
-    "refund_estimate": "החזר משוער (₪)",
-    "refund_transfer_business_days": "ההחזר מועבר תוך (ימי עסקים)",
+    "refund_estimate": "החזר משוער (₪)",    "refund_transfer_business_days": "ההחזר מועבר תוך (ימי עסקים)",
     "open_claims": "תביעות פתוחות",
     "claim_stage": "שלב הטיפול בתביעה",
     "acknowledgement_business_days": "אישור קבלת תביעה תוך (ימי עסקים)",
@@ -57,7 +59,6 @@ def decision_facts(decision: Decision) -> dict:
         }
         for v in decision.values
     ]
-    facts["notes"] = [{"text": n.text, "rule": n.rule_id} for n in decision.notes]
     return facts
 
 

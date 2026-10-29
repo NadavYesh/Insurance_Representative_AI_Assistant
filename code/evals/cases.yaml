@@ -89,7 +89,7 @@ cases:
     expect:
       request: {policy_id: "4403", intent: cancel, mentions_regulator: false}
       outcome: answer
-      values: {cooling_off: true, cancellation_fee: 0, prorated_premium: UNKNOWN}
+      values: {cooling_off: false, effective_date: 2026-10-31, cancellation_fee: 0, refund_estimate: 0}
       notes: ["01-§4"]
 
   - id: arrears-4412

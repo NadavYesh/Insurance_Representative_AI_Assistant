@@ -45,7 +45,7 @@ def month_end(d: date) -> date:
 
 
 def in_cooling_off(c: Case) -> bool:
-    # 01-§2: within 14 days of the start. A policy that hasn't started yet counts too.
+    # 01-§2: within 14 days of the start. Travel has no cooling-off (see the cooling_off table).
     return (c.today - c.known_policy.start_date).days <= 14
 
 
@@ -247,7 +247,18 @@ def _table(name: str, *rows: Row, intents=CANCELLATION, is_estimate: bool = Fals
 
 
 CANCELLATION_TABLES = (
-    _table("cooling_off", Row("01-§2", True, in_cooling_off, explain=_explain_cooling_off)),
+    _table(
+        "cooling_off",
+        # 01-§4 is travel's own limit: cancellable until the day before the trip (the
+        # 01-§4 blocking rule), free of charge (see the cancellation_fee table).
+        Row(
+            "01-§4",
+            lambda c: c.known_policy.product is Product.TRAVEL,
+            False,
+            explain="פוליסת נסיעות: אין תקופת התחרטות, ניתן לבטל עד יום לפני תחילת הנסיעה → לא",
+        ),
+        Row("01-§2", True, in_cooling_off, explain=_explain_cooling_off),
+    ),
     _table(
         "seniority_months",
         Row(
@@ -266,6 +277,11 @@ CANCELLATION_TABLES = (
             explain=lambda c, r: f"בתקופת התחרטות הביטול מיידי = {show(r)}",
         ),
         Row(
+            "01-§4",
+            lambda c: c.known_policy.product is Product.TRAVEL and c.known_policy.start_date <= month_end(c.today),
+            Unknown("הנסיעה מתחילה לפני סוף החודש, והנוהל אינו קובע אם הביטול נכנס לתוקף בסוף החודש או לפני הנסיעה"),
+        ),
+        Row(
             "04-ב",
             lambda c: c.known_policy.product is Product.HEALTH and c.known_policy.start_date < date(2024, 1, 1),
             lambda c: c.today + timedelta(days=30),
@@ -279,6 +295,8 @@ CANCELLATION_TABLES = (
     _table(
         "cancellation_fee",
         Row("01-§2", lambda c: c.value("cooling_off"), Decimal(0), explain="בתקופת התחרטות → 0 ₪"),
+        # A trip that has started is blocked (01-§4), so every travel policy here is before the trip.
+        Row("01-§4", lambda c: c.known_policy.product is Product.TRAVEL, Decimal(0), explain="פוליסת נסיעות, לפני תחילת הנסיעה → 0 ₪"),
         Row("04-א", lambda c: c.known_policy.product is Product.CAR, Decimal(150), explain="פוליסת רכב → 150 ₪ בכל ותק"),
         Row(
             "01-§3",

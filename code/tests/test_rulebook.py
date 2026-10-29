@@ -1,7 +1,7 @@
 """The rulebook against the procedures. Expected numbers are worked out by hand from
 data/policies/01–04, with today = 2026-10-25 (the export date)."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -190,13 +190,51 @@ def test_4402_already_cancelled_is_blocked(real):
     assert ask(real, "4402").outcome is Outcome.BLOCKED
 
 
-def test_4403_future_trip_is_cooling_off(real):
-    v = values(ask(real, "4403"))
-    assert v["cooling_off"] is True
+def test_4403_future_trip_has_no_cooling_off(real):
+    """Travel is cancellable free of charge until the day before the trip (01-§4)."""
+    decision = ask(real, "4403")
+    v = values(decision)
+    assert decision.outcome is Outcome.ANSWER
+    assert v["cooling_off"] is False
+    assert decision.value("cooling_off").rule_id == "01-§4"
+    assert v["effective_date"] == date(2026, 10, 31)  # end of the month (01-§1)
     assert v["cancellation_fee"] == 0
-    assert v["effective_date"] == TODAY  # immediate (01-§2)
-    assert is_unknown(v["prorated_premium"])  # full refund, but amount paid isn't in the data
+    assert decision.value("cancellation_fee").rule_id == "01-§4"
+    assert v["refund_estimate"] == 0  # 0 − 0 + 0
+    assert "01-§4" in rule_ids(decision.notes)
+
+
+def test_trip_the_day_after_can_still_be_cancelled():
+    source = FakeSource(make_policy(product=Product.TRAVEL, start_date=TODAY + timedelta(days=1)))
+    decision = ask(source, "4471")
+    assert decision.outcome is Outcome.ANSWER
+    assert values(decision)["cooling_off"] is False
+
+
+def test_trip_starting_today_is_blocked():
+    decision = ask(FakeSource(make_policy(product=Product.TRAVEL, start_date=TODAY)), "4471")
+    assert decision.outcome is Outcome.BLOCKED
+    assert decision.blocks[0].rule_id == "01-§4"
+
+
+def test_trip_before_month_end_leaves_effective_date_unknown():
+    """Cancelling at the end of the month would end the policy after the trip has started."""
+    source = FakeSource(make_policy(product=Product.TRAVEL, start_date=date(2026, 10, 28)))
+    v = values(ask(source, "4471"))
+    assert is_unknown(v["effective_date"])
     assert is_unknown(v["refund_estimate"])
+
+
+def test_non_travel_not_yet_started_is_cooling_off():
+    source = FakeSource(make_policy(product=Product.HOME, start_date=date(2026, 11, 1)))
+    assert values(ask(source, "4471"))["cooling_off"] is True
+
+
+def test_cooling_off_ends_after_14_days():
+    in_window = FakeSource(make_policy(product=Product.HOME, start_date=TODAY - timedelta(days=14)))
+    after = FakeSource(make_policy(product=Product.HOME, start_date=TODAY - timedelta(days=15)))
+    assert values(ask(in_window, "4471"))["cooling_off"] is True
+    assert values(ask(after, "4471"))["cooling_off"] is False
 
 
 def test_4416_car_in_cooling_off_pays_no_150(real):

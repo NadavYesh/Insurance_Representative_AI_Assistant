@@ -76,7 +76,8 @@ See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISION
 ## What works
 
 - Cancellation and refund questions:
-  - cancellation date (including 30 days' notice for older health policies, and immediate cancellation in the cooling-off period);
+  - cancellation date (including 30 days' notice for older health policies, and immediate cancellation in the 14-day cooling-off period, which travel policies
+    don't have: they can be cancelled free of charge until the day before the trip);
   - cancellation fee (including the flat ₪150 car fee);
   - seniority bonus and refund estimate, always marked as an estimate.
 - Escalation to the shift manager:

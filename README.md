@@ -5,6 +5,22 @@ A CLI for insurance customer-service reps. The rep types a free-text question
 from that policy's data and the company's procedures. If a case is above the rep's
 authority, it routes it to a manager instead of answering.
 
+## Why it's built this way
+
+The rep is live on the phone, and a wrong answer about money becomes a complaint to the
+regulator. So the model never decides anything:
+
+- **The LLM only reads and writes.** It turns the question into a fixed form and words
+  the answer. Every decision and amount comes from a rulebook in code, where each rule
+  cites its procedure section.
+- **Nothing is invented.** Missing data is reported as unknown. If the written answer has a
+  number that isn't in the calculated values or the policy data, it's thrown out.
+- **Cases above the rep's authority are routed, not answered,** with the same wording
+  every time.
+- **The data source is swappable.** Policy data comes through one interface: the CSV
+  today, the company's policy API later.
+- **Fast:** a median answer takes about 3 seconds.
+
 ## Requirements
 
 - Python 3.12+
@@ -35,14 +51,19 @@ conversation, so the rep doesn't have to ask again from the start:
 Answers are checked by code, not the model; an invalid one is asked again. An empty
 line skips the question, and the tool says what's missing.
 
-## Tests and evals
+## Evals and tests
+
+The evals are how we know the tool answers correctly. The unit tests are a safety net
+for whoever changes the code.
 
 ```bash
-.venv/bin/pytest                         # unit tests: every rule, the engine, the workers (no LLM)
-.venv/bin/python -m evals.run --offline  # 31 rep questions against the rules (no LLM, no key)
-.venv/bin/python -m evals.run            # the same questions end to end with the real model
+.venv/bin/python -m evals.run            # the evals, end to end with the real model
+.venv/bin/python -m evals.run --offline  # the same 31 questions against the rules only (no LLM, no key)
 .venv/bin/python -m evals.sample         # prints the 15 sampled policies (see below)
+.venv/bin/pytest                         # unit tests (see below)
 ```
+
+### Evals: the results that count
 
 `evals/cases.yaml` has two parts:
 
@@ -56,9 +77,6 @@ line skips the question, and the tool says what's missing.
   a claim question, a missing policy number) and how the tool talks to the rep. They
   check the outcome and the wording, not amounts.
 
-The unit tests (`pytest`) cover the rules the sample doesn't happen to hit, such as
-arrears (4412), a frozen policy (4455) and the multi-policy discount (4418).
-
 Each case checks:
 
 - what the model extracted from the question;
@@ -68,25 +86,32 @@ Each case checks:
 - text the answer must or must not contain (e.g. an amount that must not be given);
 - that it answered within 30 seconds.
 
-The full run with the model hasn't been redone on this set yet; offline, 31/31 pass.
+Latest full run with the model (gpt-4.1-mini, 29/10/2026): 31/31 cases passed, and all 20
+written answers passed the number check. Median 2.9s, max 5.1s.
 Time the rep spends answering a follow-up question isn't counted.
+
+### Unit tests: mainly for coding agents
+
+`code/tests/` (193 tests, `pytest`) is used mainly by the coding agent while it changes
+the code: after every change, it shows within a second what else broke. The tests also
+cover rules the sample doesn't happen to hit, such as arrears (4412), a frozen policy
+(4455) and the multi-policy discount (4418).
+
+They are not evidence that the answers are right. They were written from the same
+reading of the procedures as the code, so they check that the code does what its author
+thinks the rules say. Three wrong rules passed every unit test until a person caught
+them ([`DECISIONS.md`](docs/DECISIONS.md), section 5). The evals are the check that counts.
 
 ## How it works
 
-The LLM is used twice: to read the question into a fixed form, and to word the answer.
-Everything in between is plain code: finding the policy, blocking rules, calculations
-(the rulebook in `code/assistant/rules/rulebook.py`, each rule cites its procedure section).
+The LLM reads the question into a fixed form. Code finds the policy, checks the blocking
+rules (escalate or block), then works out each value from its decision table. The LLM
+words the answer, NumberCheck rejects it if it has a number that isn't in the values or the policy data, and code adds
+the notes and the full calculation under the answer.
 
-- **Escalations and blocks** use fixed wording, with no LLM.
-- **Every number** in a written answer is checked against the calculated values. If one
-  doesn't match, the tool shows a plain list of the values instead.
-- **Notes the rep must pass on** are added by code, word for word.
-- **The full calculation** is added by code at the bottom of every answer: each value
-  with its inputs and the rule behind it (e.g. `0 (חלק יחסי) − 150 (דמי ביטול) + 492
-  (מענק ותק) − 0 (חוב) = 342 ₪`), so the rep can check it by eye. Each rule writes
-  its own explanation, so the explanation can't drift from what was actually computed.
-
-See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISIONS.md).
+More detail: [`DECISIONS.md`](docs/DECISIONS.md) (why, with a decision-table example),
+[`rulebook.md`](docs/rulebook.md) (every rule as a table) and
+[`architecture.md`](docs/architecture.md) (the classes).
 
 ### The flow
 
@@ -125,37 +150,6 @@ flowchart TD
     class ASK1,ASK2 ask
     class E1,E2,E3,BL,FR stop
     class BR broken
-```
-
-### One decision table: the seniority bonus rate
-
-Each calculated value has its own table. Exceptions sit above the general rule, so they
-win. Every table, the blocking rules and the notes are drawn in [`rulebook.md`](docs/rulebook.md).
-
-Columns read the way the engine does: the condition, then what it asks the rep, then the
-result. Rows are read top to bottom; the first one that matches gives the rate.
-
-| # | Rule | When | Asks the rep | Rate |
-|---|---|---|---|---|
-| 1 | 02-§2ג | seniority under 12 months | no | 0% |
-| 2 | 02-§3 | health policy | "Was a claim paid to the customer in the last 12 months?" | yes → 0%<br>no → by seniority bracket<br>doesn't know → **UNKNOWN** |
-| 3 | 02-§2ג | any other case | no | by seniority bracket |
-
-| Seniority bracket (02-§2ג) | Rate |
-|---|---|
-| 12–35 months | 5% |
-| 36–60 months | 10% |
-| 61+ months | 15% |
-
-The same table as pseudo code:
-
-```
-if seniority < 12 months:   rate = 0%                 # 02-§2ג
-elif product == health:     ask "claim paid in last 12 months?"
-                              yes → 0%
-                              no  → bracket rate
-                              don't know → UNKNOWN    # 02-§3
-else:                       rate = bracket rate       # 02-§2ג
 ```
 
 ## What works

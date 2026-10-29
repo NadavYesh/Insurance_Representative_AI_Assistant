@@ -72,7 +72,7 @@ def test_health_bonus_skipped_when_claim_paid():
 
 def test_health_under_a_year_does_not_ask_the_rep():
     source = FakeSource(make_policy(product=Product.HEALTH, start_date=date(2026, 3, 1)))
-    assert ask(source, "4471").outcome is Outcome.ANSWER
+    assert ask(source, "4471").questions == ()
 
 
 def test_prepaid_past_cancellation_leaves_prorated_part_to_finance():
@@ -80,6 +80,58 @@ def test_prepaid_past_cancellation_leaves_prorated_part_to_finance():
     v = values(ask(source, "4471"))
     assert is_unknown(v["prorated_premium"])
     assert is_unknown(v["refund_estimate"])
+
+
+@pytest.mark.parametrize(
+    "last_payment, debt",
+    [
+        (date(2026, 8, 26), 0),  # 60 days: not arrears yet
+        (date(2026, 8, 20), 2 * 410),  # 66 days: September and October
+        (date(2026, 7, 31), 3 * 410),  # a month-end payment covers only its own month: August to October
+        (date(2026, 6, 2), 4 * 410),  # July to October
+    ],
+)
+def test_arrears_debt_counts_unpaid_months(last_payment, debt):
+    source = FakeSource(make_policy(last_payment_date=last_payment))
+    assert values(ask(source, "4471"))["arrears_debt"] == debt
+
+
+def test_debt_smaller_than_refund_is_offset():
+    # Paid through September by an earlier payment: only October is owed.
+    policy = make_policy(
+        product=Product.HOME,
+        start_date=date(2019, 1, 1),
+        monthly_premium=Decimal(100),
+        last_payment_date=date(2026, 8, 20),
+        paid_through=date(2026, 9, 30),
+    )
+    decision = ask(FakeSource(policy), "4471")
+    v = values(decision)
+    assert decision.outcome is Outcome.ANSWER
+    assert v["arrears_debt"] == 100
+    assert v["refund_estimate"] == 80  # 0 − 0 + 180 (15% × 1,200) − 100
+    assert "01-§5" in rule_ids(decision.notes)
+
+
+def test_debt_with_unknown_refund_is_answered_not_escalated():
+    """The refund can't be compared with the debt, so the rep gets the debt and the 01-§5 note."""
+    policy = make_policy(product=Product.HEALTH, start_date=date(2022, 1, 1), last_payment_date=date(2026, 6, 2))
+    decision = ask(FakeSource(policy), "4471", claim_paid_last_12_months=Unknown("הנציג לא יודע"))
+    v = values(decision)
+    assert decision.outcome is Outcome.ANSWER
+    assert v["arrears_debt"] == 4 * 410
+    assert is_unknown(v["refund_estimate"])
+    assert "01-§5" in rule_ids(decision.notes)
+
+
+def test_policy_not_started_owes_nothing():
+    policy = make_policy(product=Product.TRAVEL, start_date=date(2026, 11, 20), last_payment_date=date(2026, 7, 1))
+    assert values(ask(FakeSource(policy), "4471"))["arrears_debt"] == 0
+
+
+def test_debt_does_not_block_claim_questions():
+    source = FakeSource(make_policy(last_payment_date=date(2026, 6, 2)))
+    assert ask(source, "4471", intent=Intent.CLAIM).outcome is Outcome.ANSWER
 
 
 def test_regulator_wins_over_everything():
@@ -153,13 +205,36 @@ def test_4416_car_in_cooling_off_pays_no_150(real):
     assert decision.value("cancellation_fee").rule_id == "01-§2"
 
 
-def test_4441_new_car_fee_exceeds_refund(real):
+def test_4441_fee_above_refund_goes_to_collections(real):
+    """No debt, but the ₪150 car fee is more than the refund: no refund, talk to collections."""
     decision = ask(real, "4441")
     v = values(decision)
+    assert decision.outcome is Outcome.ESCALATE
+    assert decision.blocks[0].rule_id == "01-§5"
+    assert decision.blocks[0].route_to == "מחלקת גבייה"
     assert v["cancellation_fee"] == 150
     assert v["seniority_bonus"] == 0
-    assert v["refund_estimate"] == 0  # never negative
-    assert "02-§2" in rule_ids(decision.notes)
+    assert v["arrears_debt"] == 0
+    assert v["refund_estimate"] == 0
+
+
+def test_refund_covering_the_fee_is_answered(real):
+    assert ask(real, "4471").outcome is Outcome.ANSWER  # 492 bonus − 150 fee = 342
+
+
+def test_unknown_refund_is_answered_not_sent_to_collections(real):
+    decision = ask(real, "4401", claim_paid_last_12_months=Unknown("הנציג לא יודע"))
+    assert decision.outcome is Outcome.ANSWER
+    assert is_unknown(decision.value("refund_estimate").value)
+
+
+def test_no_answer_ever_has_a_refund_below_zero(real):
+    """A balance below 0 always goes to collections, so no answer can carry one."""
+    for policy_id in [f"{n}" for n in range(4401, 4461)] + ["4471"]:
+        decision = ask(real, policy_id, claim_paid_last_12_months=False)
+        if decision.outcome is Outcome.ANSWER:
+            refund = decision.value("refund_estimate").value
+            assert is_unknown(refund) or refund >= 0, policy_id
 
 
 def test_4401_old_health_asks_the_rep_first(real):
@@ -194,14 +269,17 @@ def test_4446_health_from_2024_has_no_30_day_notice(real):
     assert v["seniority_bonus_rate_percent"] == 5  # 33 months
 
 
-def test_4412_arrears_makes_refund_unknown(real):
+def test_4412_debt_above_refund_goes_to_collections(real):
     decision = ask(real, "4412")
     v = values(decision)
+    assert decision.outcome is Outcome.ESCALATE
+    assert decision.blocks[0].rule_id == "01-§5"
+    assert decision.blocks[0].route_to == "מחלקת גבייה"
     assert v["days_since_last_payment"] == 145
-    assert is_unknown(v["arrears_debt"])
-    assert is_unknown(v["refund_estimate"])
-    assert v["cancellation_fee"] == 0  # still known
-    assert "01-§5" in rule_ids(decision.notes)
+    assert v["arrears_debt"] == 580  # paid through 30/06; July to October unpaid: 4 × 145
+    assert v["seniority_bonus"] == Decimal("87.00")  # 5% × 145 × 12, 25 months
+    assert v["refund_estimate"] == 0  # 0 − 0 + 87 − 580 = −493, floored
+    assert decision.value("arrears_debt").is_estimate
 
 
 def test_4418_multi_policy_customer_is_warned(real):
@@ -241,9 +319,14 @@ def test_4471_calculation_shows_every_input(real):
     )
 
 
-def test_4441_calculation_shows_the_floor_at_zero(real):
-    explanation = ask(real, "4441").value("refund_estimate").explanation
-    assert explanation.endswith("= -150 ₪ → לא פחות מ-0 = 0 ₪")
+def test_4412_calculation_shows_the_debt(real):
+    decision = ask(real, "4412")
+    assert decision.value("arrears_debt").explanation == (
+        "שולם עד 30/06/2026; 4 חודשים שלא שולמו (07/2026–10/2026, כולל החודש הנוכחי) × 145 ₪ = 580 ₪"
+    )
+    assert decision.value("refund_estimate").explanation == (
+        "0 (חלק יחסי) − 0 (דמי ביטול) + 87 (מענק ותק) − 580 (חוב): הניכויים גבוהים מההחזר (הפרש 493 ₪) → אין החזר, 0 ₪"
+    )
 
 
 def test_unknown_inputs_show_as_question_marks(real):

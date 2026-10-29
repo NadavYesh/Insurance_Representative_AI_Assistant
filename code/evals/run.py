@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from assistant.__main__ import ENV_PATH
 from assistant.answers import parse_answer
 from assistant.config import load_config
-from assistant.forms import Intent, Question, Request, is_unknown
+from assistant.forms import Intent, Outcome, Question, Request, is_unknown
 from assistant.llm import LLMError, OpenAILLM
 from assistant.pipeline import Assistant, Reply, ReplySource
 from assistant.sources import CsvPolicySource
@@ -104,11 +104,12 @@ def check(case: dict, reply: Reply, offline: bool) -> list[str]:
         # Notes are added by code; the model restating one in its own words duplicates it.
         note_only = {n.rule_id for n in decision.notes} - {v.rule_id for v in decision.values}
         failures += [f"written part restates note {r}" for r in sorted(note_only) if r and r in reply.written]
-    failures += [
-        f"answer lacks the calculation of {v.name}"
-        for v in decision.values
-        if v.explanation and v.explanation not in reply.text
-    ]
+    if decision.outcome is Outcome.ANSWER:  # escalations give no amounts, so no calculation
+        failures += [
+            f"answer lacks the calculation of {v.name}"
+            for v in decision.values
+            if v.explanation and v.explanation not in reply.text
+        ]
     failures += [f"answer lacks {text!r}" for text in expect.get("answer_contains", []) if text not in reply.text]
     failures += [f"answer has {text!r}" for text in expect.get("answer_excludes", []) if text in reply.text]
 

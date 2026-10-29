@@ -38,6 +38,17 @@ def test_escalation_reply_names_reason_rule_target_and_time():
         assert part in text
 
 
+def test_collections_escalation_says_no_refund_and_gives_no_amounts():
+    """The Decision keeps the values as its record, but the rep gets no amount to pass on."""
+    block = Block("01-§5", "אין החזר", route_to="מחלקת גבייה", say="אין החזר. יש לפנות למחלקת גבייה.")
+    debt = Value("arrears_debt", Decimal(580), "01-§5", is_estimate=True, explanation="4 חודשים × 145 ₪ = 580 ₪")
+    text = FixedReply().render(Decision(REQUEST, Outcome.ESCALATE, make_policy(), blocks=(block,), values=(debt,)))
+    assert "להעביר למחלקת גבייה" in text
+    assert "מה לומר ללקוח: אין החזר. יש לפנות למחלקת גבייה." in text
+    assert "580" not in text
+    assert "חישוב מלא" not in text
+
+
 def test_block_reply():
     text = FixedReply().render(Decision(REQUEST, Outcome.BLOCKED, make_policy(), blocks=(Block("04-ד", "פוליסה מוקפאת"),)))
     assert "פוליסה מוקפאת" in text and "04-ד" in text

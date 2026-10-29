@@ -68,16 +68,21 @@ cases:
     question: "4441 רוצה לבטל, מה המצב?"
     expect:
       request: {policy_id: "4441", intent: cancel, mentions_regulator: false}
-      outcome: answer
+      outcome: escalate
+      rule: "01-§5"
       values: {cancellation_fee: 150, seniority_bonus: 0, refund_estimate: 0}
-      notes: ["02-§2"]
+      answer_contains: ["אין החזר", "מחלקת גבייה"]
+      answer_excludes: ["150"]
 
   - id: new-health-under-a-year-4423
     question: "פוליסה 4423, הלקוחה רוצה לבטל את ביטוח הבריאות"
     expect:
       request: {policy_id: "4423", intent: cancel, mentions_regulator: false}
-      outcome: answer
+      outcome: escalate
+      rule: "01-§5"
       values: {cancellation_fee: 50, seniority_bonus: 0, refund_estimate: 0}
+      answer_contains: ["אין החזר", "מחלקת גבייה"]
+      answer_excludes: ["50"]
 
   - id: future-trip-4403
     question: "הלקוחה עם פוליסה 4403 רוצה לבטל את ביטוח הנסיעות, היא טסה רק בנובמבר"
@@ -91,10 +96,11 @@ cases:
     question: "4412 רוצה לבטל, כמה כסף יחזור אליו?"
     expect:
       request: {policy_id: "4412", intent: cancel, mentions_regulator: false}
-      outcome: answer
-      values: {days_since_last_payment: 145, arrears_debt: UNKNOWN, refund_estimate: UNKNOWN, cancellation_fee: 0}
-      notes: ["01-§5"]
-      answer_excludes: ["87 ₪ החזר"]
+      outcome: escalate
+      rule: "01-§5"
+      values: {days_since_last_payment: 145, arrears_debt: 580, seniority_bonus: 87, refund_estimate: 0}
+      answer_contains: ["אין החזר", "מחלקת גבייה"]
+      answer_excludes: ["580", "493"]
 
   - id: multi-policy-4433
     question: "לקוח 4433 רוצה לבטל את ביטוח הדירה"

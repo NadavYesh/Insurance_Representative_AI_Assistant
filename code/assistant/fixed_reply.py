@@ -21,15 +21,20 @@ class FixedReply:
 
     def _escalation(self, decision: Decision) -> str:
         block = decision.blocks[0]
+        # With a set line to say, the rep says only that; otherwise nothing at all.
+        withhold = "אין למסור ללקוח סכומים או פרטים נוספים" if block.say else "אין לתת ללקוח תשובה"
         lines = [
-            f"⚠️ להעביר ל{block.route_to}. אין לתת ללקוח תשובה.",
+            f"⚠️ להעביר ל{block.route_to}. {withhold}.",
             f"סיבה: {block.reason} (נוהל {block.rule_id})",
         ]
-        if block.response_time:
+        if block.say:
+            lines.append(f"מה לומר ללקוח: {block.say}")
+        elif block.response_time:
             lines.append(f"מה לומר ללקוח: הבקשה מועברת ל{block.route_to}, ותשובה תינתן תוך {block.response_time}.")
         else:
             lines.append(f"מה לומר ללקוח: הבקשה מועברת ל{block.route_to}.")
         lines += self._other_reasons(decision)
+        # No calculation, even when the decision carries values: the rep gives no amounts.
         return "\n".join(lines)
 
     def _block(self, decision: Decision) -> str:

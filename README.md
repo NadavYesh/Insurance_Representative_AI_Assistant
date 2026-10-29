@@ -82,6 +82,10 @@ See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISION
 - Escalation to the shift manager:
   - a regulator complaint is mentioned (also detected by keywords, so it doesn't depend on the model);
   - cancelling a policy with an open claim.
+- Escalation to collections (מחלקת גבייה): the refund comes out below 0, because the
+  cancellation fee or the estimated debt (unpaid months × monthly premium) is larger than
+  it. The rep says only that there is no refund and the customer should talk to
+  collections, with no amounts.
 - Blocks:
   - frozen policy;
   - trip already started;
@@ -101,10 +105,12 @@ See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISION
 
 - **Claim payment date and claim stage.** The procedure gives no payment timeline, and
   the CSV only counts open claims. The answer says these are unknown.
-- **Debt amount for customers in arrears, and the amount paid in the cooling-off period.**
-  Not in the data, so the refund is shown as unknown rather than guessed.
-- **Prepaid premium.** The CSV doesn't say how far ahead a customer has paid. The tool
-  assumes the last payment covers its own month, and says so.
+- **The amount paid in the cooling-off period.** Not in the data, so the refund is shown
+  as unknown rather than guessed.
+- **Prepaid premium and exact debt.** The CSV doesn't say how far ahead a customer has
+  paid. The tool assumes the last payment covers its own month, and says so. The debt of a
+  customer in arrears is estimated from that assumption (every month after it, this one
+  included, is unpaid); the exact amount is set by collections.
 - **Refunds outside a cancellation** (double charges, reduced cover) aren't handled.
 - **The written cancellation request** is assumed to arrive today.
 

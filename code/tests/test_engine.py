@@ -77,6 +77,29 @@ def test_escalation_lists_every_matching_block_in_priority_order():
     assert decision.values == ()
 
 
+NEGATIVE_REFUND = BlockingRule(
+    "01-§5", "החזר שלילי", lambda c: c.value("refund") < 0, route_to="מחלקת גבייה", needs_values=True
+)
+
+
+def test_rule_on_values_runs_after_the_tables_and_keeps_them():
+    rules = [REGULATOR, NEGATIVE_REFUND]
+    decision = RuleEngine(FakeSource(make_policy()), rules, [FEE, BONUS, REFUND], [MULTI], TODAY).decide(cancel())
+    assert decision.outcome is Outcome.ESCALATE
+    assert [b.rule_id for b in decision.blocks] == ["01-§5"]
+    assert decision.value("refund").value == -50  # the calculation goes with the escalation
+    assert decision.notes == ()
+
+
+def test_early_blocks_skip_rules_on_values():
+    """A rule on values never runs before the tables, where it would find no values."""
+    rules = [REGULATOR, NEGATIVE_REFUND]
+    decision = RuleEngine(FakeSource(make_policy()), rules, [FEE, BONUS, REFUND], [MULTI], TODAY).decide(
+        cancel(mentions_regulator=True)
+    )
+    assert [b.rule_id for b in decision.blocks] == ["04-ה"]
+
+
 def test_unrouted_block_blocks():
     decision = engine(make_policy(status=PolicyStatus.FROZEN)).decide(cancel())
     assert decision.outcome is Outcome.BLOCKED

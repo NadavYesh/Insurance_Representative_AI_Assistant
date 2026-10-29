@@ -54,11 +54,13 @@ class BlockingRule:
     applies: Condition
     route_to: str | None = None  # None blocks the request; a name escalates it
     response_time: str | None = None
+    say: str | None = None  # what the rep tells the customer, when more than "it's being passed on"
     intents: frozenset[Intent] = ALL_INTENTS
     needs_policy: bool = True  # False for rules that read only the request
+    needs_values: bool = False  # True for rules that read table values; checked after the tables run
 
     def block(self) -> Block:
-        return Block(self.rule_id, self.reason, self.route_to, self.response_time)
+        return Block(self.rule_id, self.reason, self.route_to, self.response_time, self.say)
 
 
 @dataclass(frozen=True)

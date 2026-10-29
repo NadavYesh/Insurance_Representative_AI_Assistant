@@ -22,6 +22,7 @@ CANCELLATION = frozenset({Intent.CANCEL, Intent.REFUND}) # *********************
 CLAIMS = frozenset({Intent.CLAIM}) 
 
 SHIFT_MANAGER = "מנהל משמרת"
+COLLECTIONS = "מחלקת גבייה"
 
 CLAIM_PAID = Question(
     "claim_paid_last_12_months",
@@ -73,6 +74,37 @@ def paid_through(c: Case) -> date:
     if not is_unknown(policy.paid_through):
         return policy.paid_through
     return month_end(policy.last_payment_date)
+
+
+def _month_index(d: date) -> int:
+    return d.year * 12 + d.month
+
+
+def first_unpaid_month(c: Case) -> date:
+    """The first billing month not paid for: the month after paid_through, but not
+    before the policy started."""
+    after_paid = paid_through(c) + timedelta(days=1)
+    return max(after_paid.replace(day=1), c.known_policy.start_date.replace(day=1))
+
+
+def unpaid_months(c: Case) -> int:
+    """Billing months owed up to and including this one; 0 if none.
+
+    The current month counts in full: the customer is charged for the month the
+    cancellation request comes in (01-§1). A policy that hasn't started owes nothing.
+    """
+    return max(_month_index(c.today) - _month_index(first_unpaid_month(c)) + 1, 0)
+
+
+def _refund_below_zero(c: Case) -> bool:
+    """What the customer owes (fee, debt) is more than the refund it is offset against.
+
+    01-§5 sends a debt larger than the refund to collections; a fee larger than the
+    refund goes there too, as the same kind of balance owed. An unknown refund can't
+    be compared, so it doesn't escalate.
+    """
+    balance = _refund_balance(c)
+    return not is_unknown(balance) and balance < 0
 
 
 def _refund_balance(c: Case):
@@ -132,6 +164,18 @@ def _explain_days_since_payment(c: Case, result: int) -> str:
     return f"{show(c.today)} − {show(c.known_policy.last_payment_date)} = {result} ימים; {arrears}"
 
 
+def _explain_debt(c: Case, result: Decimal) -> str:
+    months = unpaid_months(c)
+    first = first_unpaid_month(c)
+    if months == 0:
+        return f"שולם עד {show(paid_through(c))}, כולל החודש הנוכחי → 0 ₪"
+    span = f"{first:%m/%Y}" if months == 1 else f"{first:%m/%Y}–{c.today:%m/%Y}"
+    return (
+        f"שולם עד {show(paid_through(c))}; {months} חודשים שלא שולמו ({span}, כולל החודש הנוכחי)"
+        f" × {show(c.known_policy.monthly_premium)} ₪ = {show(result)} ₪"
+    )
+
+
 def _explain_refund(c: Case, result: object) -> str:
     parts = (
         f"{_n(c.value('prorated_premium'))} (חלק יחסי) − {_n(c.value('cancellation_fee'))} (דמי ביטול)"
@@ -141,7 +185,7 @@ def _explain_refund(c: Case, result: object) -> str:
     if is_unknown(balance):
         return f"{parts} = לא ידוע"
     if balance < 0:
-        return f"{parts} = {show(balance)} ₪ → לא פחות מ-0 = 0 ₪"
+        return f"{parts}: הניכויים גבוהים מההחזר (הפרש {show(-balance)} ₪) → אין החזר, 0 ₪"
     return f"{parts} = {show(balance)} ₪"
 
 
@@ -180,6 +224,17 @@ BLOCKING_RULES = (
         "הנסיעה כבר החלה. פוליסת נסיעות ניתנת לביטול רק עד יום לפני תחילת הנסיעה, ולא יינתן החזר",
         lambda c: c.known_policy.product is Product.TRAVEL and c.today >= c.known_policy.start_date,
         intents=CANCELLATION,
+    ),
+    # Needs the calculated refund, so the engine checks it after the tables. No amounts
+    # are given: the balance rests on estimates, and settling it is collections' job.
+    BlockingRule(
+        "01-§5",
+        "דמי הביטול והחוב (אם יש) גבוהים מההחזר המגיע ללקוח, ולכן אין החזר. הסדר היתרה נעשה במחלקת גבייה",
+        _refund_below_zero,
+        route_to=COLLECTIONS,
+        say="אין החזר. יש לפנות למחלקת גבייה.",
+        intents=CANCELLATION,
+        needs_values=True,
     ),
 )
 
@@ -283,13 +338,16 @@ CANCELLATION_TABLES = (
         Row(
             "01-§5",
             lambda c: c.value("days_since_last_payment") > 60,
-            Unknown("הלקוח בפיגור תשלומים (יותר מ-60 יום), אך סכום החוב אינו בנתונים"),
+            lambda c: unpaid_months(c) * c.known_policy.monthly_premium,
+            explain=_explain_debt,
         ),
         Row("01-§5", True, Decimal(0), explain="אין פיגור → 0 ₪"),
+        is_estimate=True,
     ),
     _table(
         "refund_estimate",
         # Fees and debt are offset against the refund (01-§3, 01-§5); it never goes below 0.
+        # Below 0 escalates to collections (blocking rule 01-§5).
         Row("02-§2", lambda c: _refund_balance(c) < 0, Decimal(0), explain=_explain_refund),
         Row("02-§2", True, _refund_balance, explain=_explain_refund),
         is_estimate=True,
@@ -363,10 +421,10 @@ NOTE_RULES = (
         CANCELLATION,
     ),
     NoteRule(
-        "02-§2",
-        "דמי הביטול גבוהים מההחזר המחושב, ולכן ההחזר המשוער הוא 0. הנוהל אינו מגדיר אם היתרה נגבית מהלקוח.",
-        # A known refund means every part of the balance is known, so this can't branch on Unknown.
-        lambda c: not is_unknown(c.value("refund_estimate")) and _refund_balance(c) < 0,
+        "01-§5",
+        "חוב הפיגורים חושב בהנחה שהפרמיה משולמת חודשית, שהתשלום האחרון מכסה את החודש שבו שולם, "
+        "ושהחודש הנוכחי מחויב במלואו. הסכום המדויק נקבע במחלקת גבייה.",
+        lambda c: c.value("days_since_last_payment") > 60 and is_unknown(c.known_policy.paid_through),
         CANCELLATION,
     ),
     NoteRule(

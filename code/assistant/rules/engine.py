@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 from types import MappingProxyType
 
-from assistant.forms import Decision, Intent, Note, Outcome, Policy, Question, Request, UnknownBranchError, Value
+from assistant.forms import Block, Decision, Intent, Note, Outcome, Policy, Question, Request, UnknownBranchError, Value
 from assistant.rules.base import BlockingRule, Case, DecisionTable, NoteRule, holds
 from assistant.sources import PolicyDataError, PolicySource
 
@@ -43,11 +43,7 @@ class RuleEngine:
 
         # --------------------------------- BLOCKING PROCEDURE
         # Blocking rules come first and are all checked, so the manager sees every reason.
-        blocks = tuple(
-            rule.block()
-            for rule in self._blocking_rules
-            if request.intent in rule.intents and (policy is not None or not rule.needs_policy) and holds(rule.applies, case)
-        )
+        blocks = self._blocks(case, after_tables=False)
         if blocks: # blocked decision
             outcome = Outcome.ESCALATE if blocks[0].route_to else Outcome.BLOCKED
             return Decision(request, outcome, policy, blocks=blocks)
@@ -69,6 +65,15 @@ class RuleEngine:
 
 
         case = Case(request, policy, customer_policies, self._today, MappingProxyType(values))
+
+        # --------------------------------- BLOCKING ON CALCULATED VALUES
+        # E.g. a refund below 0. The values stay on the Decision as the record of why
+        # (tests and evals check them); the reply to the rep doesn't show them.
+        blocks = self._blocks(case, after_tables=True)
+        if blocks:
+            outcome = Outcome.ESCALATE if blocks[0].route_to else Outcome.BLOCKED
+            return Decision(request, outcome, policy, blocks=blocks, values=tuple(values.values()))
+
         notes = tuple(
             Note(rule.text, rule.rule_id)
             for rule in self._note_rules
@@ -76,6 +81,17 @@ class RuleEngine:
         )
         # --------------------------------- FINAL ANSWER
         return Decision(request, Outcome.ANSWER, policy, values=tuple(values.values()), notes=notes)
+
+    def _blocks(self, case: Case, after_tables: bool) -> tuple[Block, ...]:
+        """Every blocking rule of this stage that applies, in priority order."""
+        return tuple(
+            rule.block()
+            for rule in self._blocking_rules
+            if rule.needs_values is after_tables
+            and case.request.intent in rule.intents
+            and (case.policy is not None or not rule.needs_policy)
+            and holds(rule.applies, case)
+        )
 
     def _find_policy(self, request: Request) -> tuple[Policy | None, Question | None]:
         """Finds the policy based on policy id or customer id, or asks the rep which one."""

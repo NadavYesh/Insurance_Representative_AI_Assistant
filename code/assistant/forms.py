@@ -191,6 +191,7 @@ class Block:
     reason: str
     route_to: str | None = None  # who takes the case; None means blocked, not escalated
     response_time: str | None = None  # what to promise the customer, e.g. "2 ימי עסקים"
+    say: str | None = None  # what the rep tells the customer instead of the standard line
 
 
 @dataclass(frozen=True)

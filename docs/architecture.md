@@ -3,6 +3,8 @@
 > Status: **built**, in `code/assistant/`. The rules are in `rules/rulebook.py`; `pipeline.py` wires the workers together.
 > Two additions to the picture below: if the written answer fails NumberCheck, the rep gets a plain list of the
 > values instead; and the notes the rep must pass on are added word for word by code, never by the LLM.
+> A guard that needs calculated values (a refund below 0 → collections) is checked after the Tables.
+> Its reply gives no amounts: the rep says only "no refund, talk to collections".
 
 ## The idea in one picture
 

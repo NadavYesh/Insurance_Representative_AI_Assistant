@@ -61,6 +61,8 @@ class CsvPolicySource:
                 if policy_id:
                     self._bad[policy_id] = (_field(row, "customer_id"), e)
 
+
+    # ---------------------- The mock-API functions
     def get_policy(self, policy_id: str) -> Policy | None:
         policy_id = policy_id.strip()
         if policy_id in self._bad:

@@ -15,7 +15,7 @@ A take-home assignment (AI Builder role). The brief is `instructions/take_home_a
 ## Repo layout (paths relative to the repo root, where this file lives)
 
 - `AGENTS.md` (`CLAUDE.md` is a symlink to it) and `README.md` (in English) at the root.
-- `docs/`: the other deliverable docs (`QUESTIONS.md`, `DECISIONS.md`, `architecture.md`). `DECISIONS.md` and `QUESTIONS.md` are written in Hebrew.
+- `docs/`: the other deliverable docs (`QUESTIONS.md`, `DECISIONS.md`, `architecture.md`, `rulebook.md`). `DECISIONS.md` and `QUESTIONS.md` are written in Hebrew.
 - `code/`: all source code (`code/config.json`; secrets in `code/.env`, git-ignored).
 - `instructions/take_home_assignment.pdf`: the brief (git-ignored).
 - `data/`: input data (git-ignored, not committed).

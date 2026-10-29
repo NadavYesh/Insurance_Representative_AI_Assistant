@@ -88,6 +88,76 @@ Everything in between is plain code: finding the policy, blocking rules, calcula
 
 See [`architecture.md`](docs/architecture.md) and [`DECISIONS.md`](docs/DECISIONS.md).
 
+### The flow
+
+```mermaid
+flowchart TD
+    Q["Rep's question"] --> R["QuestionReader 🤖<br/>question → Request"]
+    R --> L["Find the policy<br/>PolicySource: CSV today, API later"]
+    L -->|record exists but is broken| BR["Report the broken record<br/>never guessed around"]
+    L --> B1{"Blocking rules<br/>all checked, the first one wins"}
+    B1 -->|"regulator complaint · 04-ה"| E1["Escalate to the shift manager"]
+    B1 -->|"open claim · 01-§6"| E2["Escalate to the shift manager<br/>reply within 2 business days"]
+    B1 -->|"frozen 04-ד · already cancelled · trip started 01-§4"| BL["Blocked"]
+    B1 -->|none| M{"Policy and intent known?"}
+    M -->|no| ASK1[/"Ask the rep:<br/>which policy · cancel, refund or claim"/]
+    ASK1 --> L
+    M -->|yes| T["Decision tables<br/>each read top to bottom, first matching row wins"]
+    T -->|"a row needs a fact the data doesn't have"| ASK2[/"Ask the rep:<br/>claim paid in the last 12 months?"/]
+    ASK2 --> T
+    T --> B2{"Refund below 0?<br/>fee and debt exceed it · 01-§5"}
+    B2 -->|yes| E3["Escalate to collections<br/>rep says: no refund, talk to collections"]
+    B2 -->|no| N["Notes: every note rule that applies"]
+    N --> W["AnswerWriter 🤖<br/>writes the values in Hebrew"]
+    W --> C{"NumberCheck:<br/>every number comes from the values?"}
+    C -->|yes| OUT["Answer + notes + full calculation"]
+    C -->|no| PL["Plain list of values + notes + calculation"]
+    E1 --> FR["FixedReply: the same wording every time, no LLM"]
+    E2 --> FR
+    E3 --> FR
+    BL --> FR
+
+    classDef llm fill:#efe4fb,stroke:#7240b8,color:#1a1a1a
+    classDef ask fill:#efe4fb,stroke:#7240b8,color:#1a1a1a
+    classDef stop fill:#fde7cf,stroke:#b8650f,color:#1a1a1a
+    classDef broken fill:#fbe0de,stroke:#b8352a,color:#1a1a1a
+    class R,W llm
+    class ASK1,ASK2 ask
+    class E1,E2,E3,BL,FR stop
+    class BR broken
+```
+
+### One decision table: the seniority bonus rate
+
+Each calculated value has its own table. Exceptions sit above the general rule, so they
+win. Every table, the blocking rules and the notes are drawn in [`rulebook.md`](docs/rulebook.md).
+
+Columns read the way the engine does: the condition, then what it asks the rep, then the
+result. Rows are read top to bottom; the first one that matches gives the rate.
+
+| # | Rule | When | Asks the rep | Rate |
+|---|---|---|---|---|
+| 1 | 02-§2ג | seniority under 12 months | no | 0% |
+| 2 | 02-§3 | health policy | "Was a claim paid to the customer in the last 12 months?" | yes → 0%<br>no → by seniority bracket<br>doesn't know → **UNKNOWN** |
+| 3 | 02-§2ג | any other case | no | by seniority bracket |
+
+| Seniority bracket (02-§2ג) | Rate |
+|---|---|
+| 12–35 months | 5% |
+| 36–60 months | 10% |
+| 61+ months | 15% |
+
+The same table as pseudo code:
+
+```
+if seniority < 12 months:   rate = 0%                 # 02-§2ג
+elif product == health:     ask "claim paid in last 12 months?"
+                              yes → 0%
+                              no  → bracket rate
+                              don't know → UNKNOWN    # 02-§3
+else:                       rate = bracket rate       # 02-§2ג
+```
+
 ## What works
 
 - Cancellation and refund questions:

@@ -37,8 +37,8 @@ cd code
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 
+.venv/bin/python -m assistant                                      # recommended: interactive
 .venv/bin/python -m assistant "לקוח 4471 רוצה לבטל, מה מגיע לו?"   # one question
-.venv/bin/python -m assistant                                      # interactive; empty line exits
 ```
 
 Windows (PowerShell or cmd):
@@ -48,26 +48,16 @@ cd code
 py -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 
-.venv\Scripts\python -m assistant "לקוח 4471 רוצה לבטל, מה מגיע לו?"
 .venv\Scripts\python -m assistant
+.venv\Scripts\python -m assistant "לקוח 4471 רוצה לבטל, מה מגיע לו?"
 ```
 
-The other commands below work the same way: on Windows, write `.venv\Scripts\`
-instead of `.venv/bin/`. Use Windows Terminal to see the Hebrew; it may show
-left-to-right, but the text is correct. Output is UTF-8 on every OS, so redirecting it to
-a file works too.
+**Recommended:** `python -m assistant` with no question, an interactive session. Empty line exits.
 
-When something is missing, the tool asks the rep a follow-up question in the same
-conversation, so the rep doesn't have to ask again from the start:
+On Windows, use `.venv\Scripts\` instead of `.venv/bin/` in the commands below.
 
-- which policy, when the customer has several (only their policy IDs are accepted);
-- the policy number, when none was given or it wasn't found;
-- whether the question is about a cancellation, a refund or a claim, when that's unclear;
-- for some health policies, whether a claim was paid in the last 12 months
-  (`כן` / `לא` / `לא יודע`, i.e. yes / no / don't know).
-
-Answers are checked by code, not the model; an invalid one is asked again. An empty
-line skips the question, and the tool says what's missing.
+If something is missing (which policy, the intent, or a paid claim for health), the tool
+asks a follow-up question. An empty line skips it.
 
 ## Evals and tests
 
